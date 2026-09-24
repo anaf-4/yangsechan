@@ -1,0 +1,45 @@
+{
+  "name": "yangsechan-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "양세찬 게임 앱 (배포된 사이트를 여는 PC/안드로이드 앱)",
+  "author": "anaf-4",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:exe": "electron-builder --win portable nsis",
+    "build:apk": "cap add android && cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "build": {
+    "appId": "com.anaf4.yangsechan",
+    "productName": "양세찬 게임",
+    "artifactName": "yangsechan-${version}-${target}.${ext}",
+    "files": [
+      "main.js",
+      "www/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "양세찬 게임"
+    }
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2"
+  }
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>양세찬 게임</title>
+<style>
+  html, body { margin:0; height:100%; background:#101322; color:#f3eee4; font-family:system-ui, "Malgun Gothic", sans-serif; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; text-align:center; padding:24px; box-sizing:border-box; }
+  .card { width:120px; height:168px; border-radius:16px; background:#f7f0e1; padding:8px; box-sizing:border-box; box-shadow:0 18px 40px rgba(0,0,0,.5); animation:flip 1.6s ease-in-out infinite; }
+  .in { height:100%; border-radius:10px; border:2px solid #ffc23d; background:#2a2358 repeating-linear-gradient(45deg, #342b6e 0 7px, #2a2358 7px 14px); display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:900; color:#ffc23d; }
+  @keyframes flip { 0%, 100% { transform:rotate(-6deg); } 50% { transform:rotate(6deg); } }
+  h1 { margin:0; font-size:28px; }
+  p { margin:0; color:#9aa1bf; line-height:1.6; }
+  button { display:none; margin-top:6px; min-height:48px; padding:0 28px; border:none; border-radius:14px; background:#ffc23d; color:#1b1406; font-size:17px; font-weight:800; box-shadow:0 5px 0 #b3811a; }
+</style>
+</head>
+<body>
+  <div class="card"><div class="in">?</div></div>
+  <h1>양세찬 게임</h1>
+  <p id="msg">서버에 연결하는 중…<br>처음 접속할 땐 최대 1분 정도 걸릴 수 있어요.</p>
+  <button id="retry" onclick="go()">다시 시도</button>
+<script>
+  // 게임 서버 주소. 서버를 옮기면 여기만 바꾸면 됩니다.
+  var GAME_URL = 'https://yangsechan.onrender.com/';
+  function go() {
+    document.getElementById('retry').style.display = 'none';
+    document.getElementById('msg').innerHTML = '서버에 연결하는 중…<br>처음 접속할 땐 최대 1분 정도 걸릴 수 있어요.';
+    // Render 무료 서버가 잠들어 있으면 깨울 때까지 이 화면을 보여 준 뒤 이동
+    // (앱 안의 페이지는 출처가 달라 응답 내용은 못 읽으므로 no-cors로 "응답이 왔는지"만 확인)
+    fetch(GAME_URL + 'healthz', { cache: 'no-store', mode: 'no-cors' })
+      .then(function () { location.replace(GAME_URL); })
+      .catch(function () {
+        document.getElementById('msg').innerHTML = '서버에 연결하지 못했어요.<br>인터넷 연결을 확인해 주세요.';
+        document.getElementById('retry').style.display = 'inline-block';
+      });
+  }
+  go();
+</script>
+</body>
+</html>

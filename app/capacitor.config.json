@@ -1,0 +1,12 @@
+{
+  "appId": "com.anaf4.yangsechan",
+  "appName": "양세찬 게임",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["yangsechan.onrender.com"]
+  },
+  "android": {
+    "backgroundColor": "#101322"
+  }
+}

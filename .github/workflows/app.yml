@@ -1,0 +1,74 @@
+# 앱 빌드: APK(안드로이드) + EXE(윈도우)
+# - app/ 폴더가 바뀌어 main에 푸시되거나, Actions 탭에서 수동 실행하면 빌드 → Artifacts에서 다운로드
+# - v로 시작하는 태그(예: v1.0.0)를 푸시하면 GitHub Releases에 파일이 올라감
+name: Build apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/app.yml']
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npx cap add android
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: app/android
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk yangsechan.apk
+      - uses: actions/upload-artifact@v5
+        with:
+          name: yangsechan-apk
+          path: app/yangsechan.apk
+
+  exe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npx electron-builder --win portable nsis --publish never
+      - uses: actions/upload-artifact@v5
+        with:
+          name: yangsechan-exe
+          path: app/dist/*.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [apk, exe]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*

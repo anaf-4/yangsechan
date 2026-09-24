@@ -1,2 +1,4 @@
 node_modules/
 .claude/
+app/dist/
+app/android/
