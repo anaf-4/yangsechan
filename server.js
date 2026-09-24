@@ -8,6 +8,7 @@ const { categories: WORDS } = require('./words.json');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 8;
 const LOBBY_GRACE_MS = 20000;    // 대기실에서 끊긴 플레이어 제거 유예
+const TURN_GRACE_MS = +process.env.TURN_GRACE_MS || 15000; // 게임 중 끊긴 플레이어 차례를 넘기기 전 대기
 const ROOM_IDLE_MS = 10 * 60000; // 전원 오프라인인 방 삭제
 const TURN_SECS = [30, 45, 60, 90];
 const VOTE_SECS = [10, 15, 20, 30, 45];
@@ -37,8 +38,9 @@ function makeCode() {
   return c;
 }
 
-function newRoom() {
+function newRoom(isPublic) {
   const room = {
+    isPublic: !!isPublic,
     code: makeCode(), hostId: null, players: [], state: 'lobby',
     category: '전체', customMode: false, custom: {}, turnSec: 45, voteSec: 20, maxPlayers: MAX_PLAYERS, wordList: [],
     turnIdx: -1, turnEnd: 0, q: null, noAsk: false, log: [], nextRank: 1, timer: null, idleTimer: null,
@@ -47,7 +49,7 @@ function newRoom() {
   return room;
 }
 function deleteRoom(room) {
-  clearTimeout(room.timer); clearTimeout(room.idleTimer);
+  clearTimeout(room.timer); clearTimeout(room.idleTimer); clearTimeout(room.graceTimer);
   room.players.forEach(p => clearTimeout(p.removeTimer));
   rooms.delete(room.code);
 }
@@ -63,7 +65,7 @@ function view(room, me) {
   return {
     code: room.code, me: me.id, hostId: host(room)?.id, state: room.state,
     category: room.category, customMode: room.customMode, turnSec: room.turnSec,
-    voteSec: room.voteSec, maxPlayers: room.maxPlayers, wordList: room.wordList,
+    voteSec: room.voteSec, maxPlayers: room.maxPlayers, wordList: room.wordList, isPublic: room.isPublic,
     categories: ['전체', ...Object.keys(WORDS), CUSTOM_CAT],
     players: room.players.map(p => ({
       id: p.id, name: p.name, online: !!p.sid, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
@@ -113,16 +115,29 @@ function setDeadline(room, ms) {
   }, ms);
 }
 
+// 방금 끊긴 사람은 잠깐 기다려 줌 (휴대폰 화면 꺼짐·앱 전환 대비)
+const graceLeft = p => p.sid ? Infinity : TURN_GRACE_MS - (Date.now() - (p.offlineAt || 0));
+
+function waitForReturn(room, p) {
+  clearTimeout(room.graceTimer);
+  addLog(room, `📴 ${p.name}님 연결 끊김 — ${Math.ceil(graceLeft(p) / 1000)}초 기다립니다.`, 'warn');
+  room.graceTimer = setTimeout(() => {
+    if (room.state !== 'playing' || room.players[room.turnIdx] !== p || p.sid) return;
+    addLog(room, `⏭ ${p.name}님이 돌아오지 않아 턴을 넘깁니다.`, 'warn');
+    nextTurn(room);
+  }, Math.max(0, graceLeft(p)));
+}
+
 function nextTurn(room) {
-  clearTimeout(room.timer);
+  clearTimeout(room.timer); clearTimeout(room.graceTimer);
   room.q = null;
   if (active(room).length <= 1) return endGame(room);
   const n = room.players.length;
-  // 접속 끊긴 사람은 없는 걸로 보고 건너뜀
+  // 오래 끊긴 사람은 없는 걸로 보고 건너뜀
   let i = -1;
   for (let k = 1; k <= n && i < 0; k++) {
     const j = (room.turnIdx + k + n) % n;
-    if (!room.players[j].rank && room.players[j].sid) i = j;
+    if (!room.players[j].rank && graceLeft(room.players[j]) > 0) i = j;
   }
   if (i < 0) {
     // 남은 사람이 모두 끊긴 상태: 게임을 끝내지 않고 누군가 돌아올 때까지 대기
@@ -136,6 +151,7 @@ function nextTurn(room) {
   room.noAsk = !!p.noAsk; p.noAsk = false;
   setDeadline(room, room.turnSec * 1000);
   addLog(room, `▶ ${p.name}님의 차례${room.noAsk ? ' (패널티: 질문 불가)' : ''}`, 'turn');
+  if (!p.sid) waitForReturn(room, p);
   sync(room);
 }
 
@@ -213,9 +229,16 @@ io.on('connection', socket => {
     return me && me.sid === socket.id ? { room, me } : null;
   };
 
+  socket.on('rooms', (cb) => {
+    if (typeof cb !== 'function') return;
+    cb([...rooms.values()]
+      .filter(r => r.isPublic && r.state === 'lobby' && r.players.length < r.maxPlayers && host(r))
+      .map(r => ({ code: r.code, host: host(r).name, count: r.players.length, max: r.maxPlayers, category: r.customMode ? '서로 지정' : r.category })));
+  });
+
   socket.on('create', (d = {}, cb = () => {}) => {
     if (!clean(d.name, 12)) return cb({ error: '닉네임을 입력하세요.' });
-    const room = newRoom();
+    const room = newRoom(d.isPublic);
     const err = join(socket, room, d);
     if (err) { deleteRoom(room); return cb({ error: err }); }
     cb({ code: room.code });
@@ -243,6 +266,7 @@ io.on('connection', socket => {
     if (!isHost(room, me) || room.state !== 'lobby') return '방장만 변경할 수 있습니다.';
     if (d.category === '전체' || d.category === CUSTOM_CAT || Object.hasOwn(WORDS, d.category)) room.category = d.category;
     if ('wordList' in d) room.wordList = [...new Set(String(d.wordList).split(/[,\n]/).map(w => clean(w, 20)).filter(Boolean))].slice(0, 200);
+    if ('isPublic' in d) room.isPublic = !!d.isPublic;
     if ('customMode' in d) { room.customMode = !!d.customMode; room.custom = {}; }
     if (TURN_SECS.includes(+d.turnSec)) room.turnSec = +d.turnSec;
     if (VOTE_SECS.includes(+d.voteSec)) room.voteSec = +d.voteSec;
@@ -349,10 +373,9 @@ io.on('connection', socket => {
     if (room.state === 'lobby') me.removeTimer = setTimeout(() => {
       if (room.state === 'lobby' && !me.sid) removePlayer(room, me);
     }, LOBBY_GRACE_MS);
-    if (room.state === 'playing' && room.players[room.turnIdx] === me) {
-      addLog(room, `📴 ${me.name}님 연결 끊김 — 턴을 건너뜁니다.`, 'warn');
-      nextTurn(room);
-    } else checkVotes(room);
+    me.offlineAt = Date.now();
+    if (room.state === 'playing' && !room.paused && room.players[room.turnIdx] === me) waitForReturn(room, me);
+    checkVotes(room);
     if (!room.players.some(p => p.sid)) room.idleTimer = setTimeout(() => deleteRoom(room), ROOM_IDLE_MS);
     if (rooms.has(room.code)) sync(room);
   });

@@ -68,8 +68,20 @@
     </div>
     <div id="entry" class="panel col hidden">
       <input id="nameIn" placeholder="닉네임 (최대 12자)" maxlength="12">
-      <button id="createBtn">방 만들기</button>
-      <div class="row"><input id="codeIn" placeholder="6자리 코드" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">방 들어가기</button></div>
+      <div class="row"><button id="showCreate" style="flex:1">방 만들기</button><button id="showJoin" class="ghost" style="flex:1">방 들어가기</button></div>
+      <div id="createBox" class="col hidden">
+        <div class="row" style="gap:16px;flex-wrap:wrap">
+          <label><input type="radio" name="vis" value="public" checked style="width:auto"> 🌐 공개방 <span class="sub">(목록에 표시)</span></label>
+          <label><input type="radio" name="vis" value="private" style="width:auto"> 🔒 비공개방 <span class="sub">(코드로만 입장)</span></label>
+        </div>
+        <button id="createBtn">만들기</button>
+      </div>
+      <div id="joinBox" class="col hidden">
+        <div class="top"><b>🌐 공개방 목록</b><button id="refreshBtn" class="ghost" style="padding:4px 10px">새로고침</button></div>
+        <ul class="players" id="roomList"></ul>
+        <b style="margin-top:8px">🔒 비공개방 코드로 입장</b>
+        <div class="row"><input id="codeIn" placeholder="6자리 코드" maxlength="6" style="text-transform:uppercase"><button id="joinBtn">입장</button></div>
+      </div>
       <button id="backBtn" class="ghost">← 뒤로</button>
     </div>
     <div class="panel sub">
@@ -92,6 +104,7 @@
         <label>투표 시간 <select id="voteSel"><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option><option value="30">30초</option><option value="45">45초</option></select></label>
         <label>최대 인원 <select id="maxSel"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
         <label><input type="checkbox" id="customChk" style="width:auto"> 서로 제시어 지정하기</label>
+        <label><input type="checkbox" id="publicChk" style="width:auto"> 🌐 공개방</label>
       </div>
       <div id="wordBox" class="hidden" style="margin-top:12px">
         <div class="sub">사용할 제시어를 쉼표나 줄바꿈으로 구분해 입력하세요 (인원 수 이상 필요)</div>
@@ -169,10 +182,33 @@ $('codeIn').value = new URLSearchParams(location.search).get('room') || '';
 const entry = on => { $('intro').classList.toggle('hidden', on); $('entry').classList.toggle('hidden', !on); if (on) $('nameIn').focus(); };
 $('introBtn').onclick = () => entry(true);
 $('backBtn').onclick = () => entry(false);
-if ($('codeIn').value) entry(true); // 초대 링크로 들어오면 바로 입력 화면
 const nm = () => { const n = $('nameIn').value.trim(); localStorage.setItem('ysc_name', n); return n; };
-$('createBtn').onclick = () => socket.emit('create', { name: nm(), token }, entered);
-$('joinBtn').onclick = () => socket.emit('join', { name: nm(), code: $('codeIn').value.trim(), token }, entered);
+let listTimer;
+function tab(which) {
+  $('createBox').classList.toggle('hidden', which !== 'create');
+  $('joinBox').classList.toggle('hidden', which !== 'join');
+  $('showCreate').className = which === 'create' ? '' : 'ghost';
+  $('showJoin').className = which === 'join' ? '' : 'ghost';
+  clearInterval(listTimer);
+  if (which === 'join') { loadRooms(); listTimer = setInterval(loadRooms, 5000); }
+}
+function loadRooms() {
+  if ($('home').classList.contains('hidden')) return clearInterval(listTimer);
+  socket.emit('rooms', list => {
+    $('roomList').innerHTML = list.length ? list.map(r => `
+      <li><span class="grow"><b>${esc(r.host)}</b>님의 방 <span class="sub">· ${esc(r.category)}</span></span>
+      <span class="sub">${r.count}/${r.max}명</span><button data-code="${esc(r.code)}" style="background:var(--accent)">입장</button></li>`).join('')
+      : '<li class="sub">열려 있는 공개방이 없습니다.</li>';
+  });
+}
+const joinCode = code => socket.emit('join', { name: nm(), code, token }, entered);
+$('showCreate').onclick = () => tab('create');
+$('showJoin').onclick = () => tab('join');
+$('refreshBtn').onclick = loadRooms;
+$('roomList').onclick = e => { const c = e.target.dataset.code; if (c) joinCode(c); };
+$('createBtn').onclick = () => socket.emit('create', { name: nm(), token, isPublic: document.querySelector('[name=vis]:checked').value === 'public' }, entered);
+$('joinBtn').onclick = () => joinCode($('codeIn').value.trim());
+if ($('codeIn').value) { entry(true); tab('join'); } // 초대 링크로 들어오면 바로 입장 화면
 $('codeIn').onkeydown = e => { if (e.key === 'Enter') $('joinBtn').click(); };
 
 // ---- 대기실 ----
@@ -185,6 +221,7 @@ $('secSel').onchange = () => act('settings', { turnSec: $('secSel').value });
 $('voteSel').onchange = () => act('settings', { voteSec: $('voteSel').value });
 $('maxSel').onchange = () => act('settings', { maxPlayers: $('maxSel').value });
 $('wordIn').onchange = () => act('settings', { wordList: $('wordIn').value });
+$('publicChk').onchange = () => act('settings', { isPublic: $('publicChk').checked });
 $('customChk').onchange = () => act('settings', { customMode: $('customChk').checked });
 $('customBtn').onclick = () => { act('customWord', { word: $('customIn').value }); $('customIn').value = ''; };
 $('customIn').onkeydown = e => { if (e.key === 'Enter') $('customBtn').click(); };
@@ -210,8 +247,8 @@ function renderLobby() {
     </li>`).join('');
   if ($('catSel').options.length !== S.categories.length) $('catSel').innerHTML = S.categories.map(c => `<option>${esc(c)}</option>`).join('');
   $('catSel').value = S.category; $('secSel').value = S.turnSec; $('voteSel').value = S.voteSec;
-  $('maxSel').value = S.maxPlayers; $('customChk').checked = S.customMode;
-  for (const id of ['catSel', 'secSel', 'voteSel', 'maxSel', 'customChk', 'wordIn']) $(id).disabled = !isHost;
+  $('maxSel').value = S.maxPlayers; $('customChk').checked = S.customMode; $('publicChk').checked = S.isPublic;
+  for (const id of ['catSel', 'secSel', 'voteSel', 'maxSel', 'customChk', 'publicChk', 'wordIn']) $(id).disabled = !isHost;
   $('catSel').disabled ||= S.customMode;
   $('wordBox').classList.toggle('hidden', S.customMode || S.category !== '직접 입력');
   if (document.activeElement !== $('wordIn')) $('wordIn').value = S.wordList.join(', ');

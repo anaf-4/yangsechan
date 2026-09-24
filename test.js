@@ -1,5 +1,6 @@
 // 핵심 게임 흐름 자가 점검: node test.js
 process.env.PORT = 0;
+process.env.TURN_GRACE_MS = 300;
 const assert = require('assert');
 const { io } = require('socket.io-client');
 const server = require('./server');
@@ -18,7 +19,12 @@ server.on('listening', async () => {
   await Promise.all([a, b, c].map(s => wait(s, 'connect')));
   const tok = n => n.repeat(16);
 
-  const { code } = await emitCb(a, 'create', { name: 'A', token: tok('a') });
+  const { code } = await emitCb(a, 'create', { name: 'A', token: tok('a'), isPublic: true });
+  const priv = await emitCb(c, 'create', { name: 'P', token: tok('p') });
+  const list = await new Promise(r => b.emit('rooms', r));
+  assert.ok(list.some(r => r.code === code && r.host === 'A'), '공개방 목록에 표시');
+  assert.ok(!list.some(r => r.code === priv.code), '비공개방은 목록에 없음');
+  c.emit('leave');
   assert.match(code, /^(?=.*[A-Z])(?=.*\d)[A-Z\d]{6}$/);
   assert.equal((await emitCb(b, 'join', { code, name: 'A', token: tok('x') })).error, '이미 사용 중인 닉네임입니다.');
   await emitCb(b, 'join', { code, name: 'B', token: tok('b') });
@@ -94,7 +100,8 @@ server.on('listening', async () => {
   const cT = nextState(c, s => s.turnId === s.players[2].id);
   b.disconnect();
   const s3 = await cT;
-  assert.ok(s3.log.some(l => l.text.includes('턴을 건너뜁니다')));
+  assert.ok(s3.log.some(l => l.text.includes('기다립니다')));
+  assert.ok(s3.log.some(l => l.text.includes('턴을 넘깁니다')));
 
   // C 질문 → (B 끊김, A만 투표) → A 차례, A 정답 → 1명 맞혀도 게임 계속, C 차례
   c.emit('ask', { text: 'q2' });
