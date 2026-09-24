@@ -1,0 +1,20 @@
+{
+  "name": "yangsechan-online",
+  "version": "1.0.0",
+  "private": true,
+  "description": "웹 기반 실시간 멀티플레이 양세찬 게임",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}

@@ -1,0 +1,108 @@
+// 핵심 게임 흐름 자가 점검: node test.js
+process.env.PORT = 0;
+const assert = require('assert');
+const { io } = require('socket.io-client');
+const server = require('./server');
+
+const wait = (sock, ev) => new Promise(r => sock.once(ev, r));
+const emitCb = (sock, ev, d) => new Promise(r => sock.emit(ev, d, r));
+const nextState = (sock, pred = () => true) => new Promise(r => {
+  const h = s => { if (pred(s)) { sock.off('state', h); r(s); } };
+  sock.on('state', h);
+});
+
+server.on('listening', async () => {
+  const url = `http://localhost:${server.address().port}`;
+  const mk = () => io(url, { forceNew: true });
+  const [a, b, c] = [mk(), mk(), mk()];
+  await Promise.all([a, b, c].map(s => wait(s, 'connect')));
+  const tok = n => n.repeat(16);
+
+  const { code } = await emitCb(a, 'create', { name: 'A', token: tok('a') });
+  assert.match(code, /^(?=.*[A-Z])(?=.*\d)[A-Z\d]{6}$/);
+  assert.equal((await emitCb(b, 'join', { code, name: 'A', token: tok('x') })).error, '이미 사용 중인 닉네임입니다.');
+  await emitCb(b, 'join', { code, name: 'B', token: tok('b') });
+  await emitCb(c, 'join', { code, name: 'C', token: tok('c') });
+
+  // 준비 안 된 플레이어가 있으면 시작 불가
+  const e0 = wait(a, 'err'); a.emit('start');
+  assert.match(await e0, /준비/);
+  await new Promise(r => { a.once('state', r); b.emit('ready'); });
+  await new Promise(r => { a.once('state', r); c.emit('ready'); });
+
+  // 제시어: 본인만 ???
+  const pc = nextState(c, s => s.state === 'playing');
+  const pb = nextState(b, s => s.state === 'playing');
+  const pa = nextState(a, s => s.state === 'playing');
+  a.emit('start');
+  const [sa, sb, sc] = await Promise.all([pa, pb, pc]);
+  const words = sb.players.map(p => p.word);
+  assert.equal(sa.players[0].word, '???');
+  assert.equal(sb.players[1].word, '???');
+  assert.equal(sa.players[1].word, sc.players[1].word);
+  const realA = sb.players[0].word, realB = sa.players[1].word;
+  assert.equal(new Set([realA, realB, sa.players[2].word]).size, 3, '중복 제시어');
+  assert.equal(sa.turnId, sa.players[0].id);
+
+  // A 질문 → B, C 투표 → B 차례
+  a.emit('ask', { text: '나는 동물인가요?' });
+  await nextState(b, s => !!s.q);
+  b.emit('vote', { answer: 'yes' });
+  const bTurn = nextState(a, s => s.turnId === s.players[1].id);
+  c.emit('vote', { answer: 'no' });
+  const s1 = await bTurn;
+  assert.ok(s1.log.some(l => l.text.includes('예 1 / 아니오 1 / 모호함 0')));
+
+  // B 오답 → 패널티 → C 차례
+  const cTurn = nextState(a, s => s.turnId === s.players[2].id);
+  b.emit('guess', { text: '틀린답zz' });
+  await cTurn;
+  // C 질문 없이 오답 (패널티 적용) → A 차례
+  const aTurn = nextState(a, s => s.turnId === s.players[0].id);
+  c.emit('guess', { text: '틀린답zz' });
+  await aTurn;
+  // A 정답(공백 무시) → 1등, B 차례, B는 질문 불가
+  const bTurn2 = nextState(b, s => s.turnId === s.players[1].id);
+  a.emit('guess', { text: ` ${realA} ` });
+  const s2 = await bTurn2;
+  assert.equal(s2.players[0].rank, 1);
+  assert.equal(s2.noAsk, true);
+  const errP = wait(b, 'err');
+  b.emit('ask', { text: '질문' });
+  assert.match(await errP, /패널티/);
+
+  // 관전자 A는 자기 제시어 보임
+  const sA = await new Promise(r => { a.once('state', r); a.emit('ready'); });
+  assert.equal(sA.players[0].word, realA);
+
+  // B 정답 → 2명 맞힘, C 남음 → 종료
+  const end = nextState(c, s => s.state === 'result');
+  b.emit('guess', { text: realB });
+  const r = await end;
+  assert.deepEqual(r.players.map(p => p.rank), [1, 2, 3]);
+  assert.deepEqual(r.players.map(p => p.word), words.map((w, i) => i === 1 ? realB : w));
+
+  // 끊긴 플레이어 턴은 건너뜀: 새 게임(A부터) → A 질문 → B·C 투표 → B 차례에 B 끊김 → C 차례
+  const g2 = nextState(c, s => s.state === 'playing');
+  a.emit('again');
+  await g2;
+  a.emit('ask', { text: 'q' });
+  await nextState(c, s => !!s.q);
+  const bT = nextState(c, s => s.turnId === s.players[1].id);
+  b.emit('vote', { answer: 'yes' }); c.emit('vote', { answer: 'yes' });
+  await bT;
+  const cT = nextState(c, s => s.turnId === s.players[2].id);
+  b.disconnect();
+  const s3 = await cT;
+  assert.ok(s3.log.some(l => l.text.includes('턴을 건너뜁니다')));
+
+  // 재접속: 같은 토큰으로 복귀
+  c.disconnect();
+  const c2 = mk(); await wait(c2, 'connect');
+  const rj = await emitCb(c2, 'join', { code, token: tok('c') });
+  assert.equal(rj.code, code);
+
+  console.log('✅ all tests passed');
+  [a, c2].forEach(s => s.close());
+  process.exit(0);
+});
