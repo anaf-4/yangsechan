@@ -69,7 +69,7 @@ function view(room, me) {
     voteSec: room.voteSec, maxPlayers: room.maxPlayers, wordList: room.wordList, isPublic: room.isPublic,
     categories: ['전체', ...Object.keys(WORDS), CUSTOM_CAT],
     players: room.players.map(p => ({
-      id: p.id, name: p.name, online: !!p.sid, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
+      id: p.id, name: p.name, online: !!p.sid, kicked: !!p.kicked, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
       // 핵심 규칙: 진행 중인 본인 제시어만 가림 (맞힌 뒤엔 공개)
       word: room.state === 'lobby' ? null : (p === me && !p.rank && room.state === 'playing') ? '???' : p.word,
     })),
@@ -177,11 +177,22 @@ function checkVotes(room) {
 
 function endGame(room) {
   clearTimeout(room.timer);
-  room.q = null;
+  room.q = null; room.startAt = 0;
   active(room).forEach(p => { p.rank = room.nextRank++; });
   room.state = 'result';
   addLog(room, '🏁 게임 종료!', 'sys');
   sync(room);
+}
+
+// 게임 중 이탈(기권·강퇴): 자리는 남기되 순위에서 빠지고 재입장 불가
+function forfeit(room, p, text, kicked = false) {
+  Object.assign(p, { sid: null, token: null, kicked });
+  if (p.rank) return;
+  p.rank = -1;
+  addLog(room, text, 'warn');
+  if (room.players[room.turnIdx] === p && !room.startAt) nextTurn(room);
+  else if (active(room).length <= 1) endGame(room);
+  else checkVotes(room);
 }
 
 function toLobby(room) {
@@ -292,10 +303,11 @@ io.on('connection', socket => {
   });
 
   on('kick', (room, me, d) => {
-    if (!isHost(room, me) || room.state !== 'lobby') return '방장만 강퇴할 수 있습니다.';
+    if (!isHost(room, me)) return '방장만 강퇴할 수 있습니다.';
     const t = room.players.find(p => p.id === d.id);
     if (!t || t === me) return;
     if (t.sid) io.to(t.sid).emit('kicked', '방장에 의해 퇴장되었습니다.');
+    if (room.state === 'playing') return forfeit(room, t, `🚪 ${t.name}님이 강퇴되었습니다.`, true);
     removePlayer(room, t);
   });
 
@@ -357,17 +369,7 @@ io.on('connection', socket => {
 
   on('leave', (room, me) => {
     socket.data = {};
-    if (room.state === 'playing') {
-      Object.assign(me, { sid: null, token: null });
-      if (!me.rank) {
-        me.rank = -1;
-        addLog(room, `🚪 ${me.name}님이 기권했습니다.`, 'warn');
-        if (room.players[room.turnIdx] === me) nextTurn(room);
-        else if (active(room).length <= 1) endGame(room);
-        else checkVotes(room);
-      }
-      return;
-    }
+    if (room.state === 'playing') return forfeit(room, me, `🚪 ${me.name}님이 기권했습니다.`);
     removePlayer(room, me);
   });
 

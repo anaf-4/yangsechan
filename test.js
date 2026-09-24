@@ -130,6 +130,15 @@ server.on('listening', async () => {
   assert.equal(rj.code, code);
   await resumed;
 
+  // 게임 중 강퇴: 강퇴된 사람은 퇴장 처리, 남은 미정답자 1명 → 종료
+  const kicked = wait(c2, 'kicked');
+  const over = nextState(a, s => s.state === 'result');
+  a.emit('kick', { id: s5.players[2].id });
+  await kicked;
+  const s6 = await over;
+  assert.equal(s6.players[2].rank, -1);
+  assert.equal(s6.players[2].kicked, true);
+
   console.log('✅ all tests passed');
   [a, c2].forEach(s => s.close());
   process.exit(0);

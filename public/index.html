@@ -259,6 +259,20 @@
   .cd-sub b { color:var(--gold); }
   @media (prefers-reduced-motion: reduce) { .cd-num.pop { animation:none; } }
 
+  /* 확인 창 */
+  #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
+  @keyframes rise { from { transform:translateY(16px); opacity:0; } }
+  .modal-msg { font-family:var(--display); font-size:24px; line-height:1.4; word-break:keep-all; }
+  .modal-msg b { color:var(--gold); font-weight:400; }
+  .modal-sub { margin-top:8px; font-size:14px; color:var(--muted); }
+  .modal-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:24px; }
+  .modal-actions .btn { min-height:56px; font-size:18px; }
+  .modal-actions .btn-gold { font-size:22px; }
+  .seat { position:relative; }
+  .seat-kick { position:absolute; top:-10px; left:-8px; z-index:2; width:34px; height:34px; border-radius:50%; border:2px solid var(--line-2); background:var(--panel); color:var(--soft); display:flex; align-items:center; justify-content:center; }
+  .seat-kick:hover { background:#3a2030; color:var(--coral); border-color:var(--coral); }
+
   /* 배너·토스트 */
   #banner { position:fixed; top:0; left:0; right:0; z-index:20; background:var(--coral); color:#2b0f08; text-align:center; padding:10px; font-weight:800; }
   #toast { position:fixed; bottom:24px; left:50%; transform:translate(-50%, 20px); z-index:20; max-width:90vw; padding:14px 22px; border-radius:14px; background:var(--ivory); color:var(--ink); font-weight:800; box-shadow:0 10px 30px rgba(0,0,0,.5); opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; }
@@ -551,6 +565,17 @@
   <div class="cd-sub">곧 게임이 시작됩니다.<br>내 제시어는 <b>나만 몰라요!</b></div>
 </div>
 
+<div id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modalMsg">
+  <div class="panel modal-box">
+    <div id="modalMsg" class="modal-msg"></div>
+    <div id="modalSub" class="modal-sub"></div>
+    <div class="modal-actions">
+      <button id="modalNo" class="btn">아니요</button>
+      <button id="modalYes" class="btn btn-gold">예</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" role="status"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -592,6 +617,25 @@ function entered(res) {
   history.replaceState(null, '', '/?room=' + res.code);
 }
 const act = (ev, data) => socket.emit(ev, data);
+
+// 사이트 안의 예/아니요 확인 창 (브라우저 confirm 대신)
+let modalYes = null;
+function ask2(html, sub, onYes) {
+  $('modalMsg').innerHTML = html;
+  $('modalSub').textContent = sub || '';
+  modalYes = onYes;
+  $('modal').classList.remove('hidden');
+  $('modalNo').focus();
+}
+const closeModal = () => { $('modal').classList.add('hidden'); modalYes = null; };
+$('modalNo').onclick = closeModal;
+$('modalYes').onclick = () => { const f = modalYes; closeModal(); f?.(); };
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+$('modal').onkeydown = e => { if (e.key === 'Escape') closeModal(); };
+const confirmKick = id => {
+  const p = S?.players.find(x => x.id === id);
+  if (p) ask2(`<b>${esc(p.name)}</b>님을<br>강퇴하시겠습니까?`, S.state === 'playing' ? '게임 중 강퇴하면 순위에서 빠져요.' : '', () => act('kick', { id }));
+};
 
 // ---- 메인 ----
 $('nameIn').value = localStorage.getItem('ysc_name') || '';
@@ -644,11 +688,12 @@ $('customBtn').onclick = () => { act('customWord', { word: $('customIn').value }
 $('customIn').onkeydown = e => { if (e.key === 'Enter') $('customBtn').click(); };
 $('readyBtn').onclick = () => act('ready');
 $('startBtn').onclick = () => act('start');
-$('lPlayers').onclick = e => { const id = e.target.closest('[data-kick]')?.dataset.kick; if (id && confirm('강퇴할까요?')) act('kick', { id }); };
+$('lPlayers').onclick = e => { const id = e.target.closest('[data-kick]')?.dataset.kick; if (id) confirmKick(id); };
+$('cards').onclick = e => { const id = e.target.closest('[data-kick]')?.dataset.kick; if (id) confirmKick(id); };
 const leave = () => { act('leave'); goHome(); };
 $('leaveBtn').onclick = leave;
 $('leaveResBtn').onclick = leave;
-$('leaveGameBtn').onclick = () => { if (confirm('기권하고 나갈까요?')) leave(); };
+$('leaveGameBtn').onclick = () => ask2('기권하고<br>나가시겠습니까?', '다시 들어올 수 없어요.', leave);
 
 function renderLobby() {
   show('lobby');
@@ -713,7 +758,7 @@ $('qBox').onclick = e => { const a = e.target.closest('[data-vote]')?.dataset.vo
 function renderGame() {
   show('game');
   const me = S.players.find(p => p.id === S.me), tp = S.players.find(p => p.id === S.turnId);
-  const myTurn = S.turnId === S.me;
+  const myTurn = S.turnId === S.me, isHost = S.hostId === S.me;
   $('gCode').textContent = S.code;
   const counting = cdEnd > Date.now();
   $('turnInfo').innerHTML = counting ? '<span>곧 시작합니다</span>' : !tp ? '<span>재접속 대기 중</span>'
@@ -721,12 +766,13 @@ function renderGame() {
 
   $('cards').innerHTML = S.players.map(p => {
     const hidden = p.id === S.me && p.word === '???';
-    const ribbon = p.rank > 0 ? `<div class="ribbon">${p.rank}등</div>` : p.rank < 0 ? '<div class="ribbon quit">기권</div>' : '';
+    const ribbon = p.rank > 0 ? `<div class="ribbon">${p.rank}등</div>` : p.rank < 0 ? `<div class="ribbon quit">${p.kicked ? '퇴장' : '기권'}</div>` : '';
+    const kick = isHost && p.id !== S.me && p.rank >= 0 ? `<button class="seat-kick" data-kick="${p.id}" aria-label="${esc(p.name)} 강퇴">${ICON.x}</button>` : '';
     const card = hidden
       ? '<div class="card back"><div class="back-in"><div class="qmark">?</div></div></div>'
       : `<div class="card face"><span class="brand">YSC</span><span class="word">${esc(p.word)}</span>${ribbon}</div>`;
     return `<div class="seat ${p.id === S.turnId ? 'turn' : ''} ${p.rank ? 'done' : ''} ${p.online ? '' : 'off'} ${p.id === S.me ? 'mine' : ''}">
-      ${card}<div class="tag">${p.online ? '' : ICON.off}${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</div></div>`;
+      ${kick}${card}<div class="tag">${p.online ? '' : ICON.off}${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</div></div>`;
   }).join('');
 
   $('askBox').classList.toggle('hidden', !myTurn || !!S.q);
@@ -802,7 +848,7 @@ function renderResult() {
       <div class="stand">${p.rank}</div></div>`;
   $('podium').innerHTML = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map(pod).join('');
   $('rList').innerHTML = [...ranked.slice(3), ...quit].map(p => `
-    <li><span class="pl">${p.rank > 0 ? p.rank : '기권'}</span><span class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span><span class="wd">${esc(p.word)}</span></li>`).join('');
+    <li><span class="pl">${p.rank > 0 ? p.rank : p.kicked ? '퇴장' : '기권'}</span><span class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span><span class="wd">${esc(p.word)}</span></li>`).join('');
   $('rList').classList.toggle('hidden', !$('rList').children.length);
   $('rHost').classList.toggle('hidden', !isHost);
   $('rWait').classList.toggle('hidden', isHost);
