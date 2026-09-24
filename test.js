@@ -96,11 +96,28 @@ server.on('listening', async () => {
   const s3 = await cT;
   assert.ok(s3.log.some(l => l.text.includes('턴을 건너뜁니다')));
 
-  // 재접속: 같은 토큰으로 복귀
+  // C 질문 → (B 끊김, A만 투표) → A 차례, A 정답 → 1명 맞혀도 게임 계속, C 차례
+  c.emit('ask', { text: 'q2' });
+  await nextState(a, s => !!s.q);
+  const aT = nextState(a, s => s.turnId === s.players[0].id);
+  a.emit('vote', { answer: 'no' });
+  await aT;
+  const cT2 = nextState(a, s => s.turnId === s.players[2].id);
+  a.emit('guess', { text: s3.players[0].word });
+  const s4 = await cT2;
+  assert.equal(s4.state, 'playing');
+  assert.equal(s4.players[0].rank, 1);
+
+  // 남은 B·C 모두 끊김 → 종료가 아니라 대기, C 재접속 시 재개
+  const paused = nextState(a, s => s.turnId === null);
   c.disconnect();
+  const s5 = await paused;
+  assert.equal(s5.state, 'playing');
   const c2 = mk(); await wait(c2, 'connect');
+  const resumed = nextState(a, s => s.turnId === s.players[2].id);
   const rj = await emitCb(c2, 'join', { code, token: tok('c') });
   assert.equal(rj.code, code);
+  await resumed;
 
   console.log('✅ all tests passed');
   [a, c2].forEach(s => s.close());

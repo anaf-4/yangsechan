@@ -63,10 +63,14 @@
   <!-- 메인 -->
   <section id="home">
     <h1>🕵️ 양세찬 게임<small>내 제시어만 나만 모른다!</small></h1>
-    <div class="panel col">
+    <div id="intro" class="panel col">
+      <button id="introBtn" style="font-size:1.2rem;padding:16px">게임 시작</button>
+    </div>
+    <div id="entry" class="panel col hidden">
       <input id="nameIn" placeholder="닉네임 (최대 12자)" maxlength="12">
       <button id="createBtn">방 만들기</button>
-      <div class="row"><input id="codeIn" placeholder="6자리 코드" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">코드로 입장</button></div>
+      <div class="row"><input id="codeIn" placeholder="6자리 코드" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">방 들어가기</button></div>
+      <button id="backBtn" class="ghost">← 뒤로</button>
     </div>
     <div class="panel sub">
       <b>규칙</b> — 다른 사람의 제시어는 모두 보이지만 내 것만 <b>???</b>로 가려집니다.
@@ -162,6 +166,10 @@ const act = (ev, data) => socket.emit(ev, data);
 // ---- 메인 ----
 $('nameIn').value = localStorage.getItem('ysc_name') || '';
 $('codeIn').value = new URLSearchParams(location.search).get('room') || '';
+const entry = on => { $('intro').classList.toggle('hidden', on); $('entry').classList.toggle('hidden', !on); if (on) $('nameIn').focus(); };
+$('introBtn').onclick = () => entry(true);
+$('backBtn').onclick = () => entry(false);
+if ($('codeIn').value) entry(true); // 초대 링크로 들어오면 바로 입력 화면
 const nm = () => { const n = $('nameIn').value.trim(); localStorage.setItem('ysc_name', n); return n; };
 $('createBtn').onclick = () => socket.emit('create', { name: nm(), token }, entered);
 $('joinBtn').onclick = () => socket.emit('join', { name: nm(), code: $('codeIn').value.trim(), token }, entered);
@@ -234,7 +242,7 @@ function renderGame() {
   const me = S.players.find(p => p.id === S.me), tp = S.players.find(p => p.id === S.turnId);
   const myTurn = S.turnId === S.me;
   $('gCode').textContent = `방 ${S.code}`;
-  $('turnInfo').textContent = myTurn ? '🔥 내 차례!' : `${tp?.name ?? ''}님의 차례`;
+  $('turnInfo').textContent = !tp ? '⏸ 재접속 대기 중' : myTurn ? '🔥 내 차례!' : `${tp.name}님의 차례`;
   $('cards').innerHTML = S.players.map(p => `
     <div class="card ${p.id === S.turnId ? 'turn' : ''} ${p.rank ? 'done' : ''} ${p.id === S.me ? 'mine' : ''} ${p.online ? '' : 'off'}">
       <div class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}${p.online ? '' : ' 📴'}</div>
@@ -256,7 +264,8 @@ function renderGame() {
       ${canVote ? `<div class="row votes">${Object.keys(LABEL).map(a => `<button data-vote="${a}" class="v-${a} ${mv === a ? 'sel' : ''}">${LABEL[a]}</button>`).join('')}</div>` : ''}`;
   } else $('qBox').innerHTML = '';
 
-  $('waitMsg').textContent = me.rank ? '👀 관전 중 — 제시어를 맞혔습니다!' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '') : S.q ? '' : `${tp?.name ?? ''}님이 고민 중…`;
+  $('waitMsg').textContent = me.rank ? '👀 관전 중 — 제시어를 맞혔습니다! 마지막 1명이 남을 때까지 게임이 계속됩니다.'
+    : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '') : S.q ? '' : `${tp?.name ?? ''}님이 고민 중…`;
   $('log').innerHTML = S.log.map(l => `<div class="${l.kind}">${esc(l.text)}</div>`).join('');
   $('log').scrollTop = $('log').scrollHeight;
 }

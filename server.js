@@ -72,7 +72,7 @@ function view(room, me) {
     })),
     customTarget: room.customMode && n > 1 ? room.players[(i + 1) % n].name : null,
     myCustom: room.custom[me.id] || '',
-    turnId: room.state === 'playing' && tp ? tp.id : null,
+    turnId: room.state === 'playing' && !room.paused && tp ? tp.id : null,
     remaining: Math.max(0, room.turnEnd - Date.now()),
     noAsk: room.noAsk,
     q: room.q && { text: room.q.text, votes: room.q.votes },
@@ -98,7 +98,7 @@ function startGame(room) {
     words = shuffle(pool).slice(0, n);
   }
   room.players.forEach((p, i) => Object.assign(p, { word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false }));
-  Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1 });
+  Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false });
   addLog(room, '🎮 게임 시작! 내 제시어를 맞혀보세요.', 'sys');
   nextTurn(room);
 }
@@ -124,7 +124,13 @@ function nextTurn(room) {
     const j = (room.turnIdx + k + n) % n;
     if (!room.players[j].rank && room.players[j].sid) i = j;
   }
-  if (i < 0) return endGame(room);
+  if (i < 0) {
+    // 남은 사람이 모두 끊긴 상태: 게임을 끝내지 않고 누군가 돌아올 때까지 대기
+    room.paused = true; room.turnEnd = 0;
+    addLog(room, '⏸ 남은 플레이어의 재접속을 기다립니다…', 'warn');
+    return sync(room);
+  }
+  room.paused = false;
   room.turnIdx = i;
   const p = room.players[i];
   room.noAsk = !!p.noAsk; p.noAsk = false;
@@ -160,7 +166,7 @@ function toLobby(room) {
   clearTimeout(room.timer);
   room.players = room.players.filter(p => p.sid); // 오프라인·기권자는 정리
   room.players.forEach(p => Object.assign(p, { word: null, rank: 0, ready: false }));
-  Object.assign(room, { state: 'lobby', q: null, custom: {}, log: [], turnIdx: -1 });
+  Object.assign(room, { state: 'lobby', q: null, custom: {}, log: [], turnIdx: -1, paused: false });
   if (!room.players.length) deleteRoom(room);
 }
 
@@ -179,6 +185,7 @@ function attach(socket, room, p) {
   if (p.sid && p.sid !== socket.id) io.to(p.sid).emit('kicked', '다른 창에서 접속했습니다.');
   p.sid = socket.id;
   socket.data = { code: room.code, pid: p.id };
+  if (room.state === 'playing' && room.paused && !p.rank) return nextTurn(room);
   sync(room);
 }
 
