@@ -13,7 +13,6 @@
   "build": {
     "appId": "com.anaf4.yangsechan",
     "productName": "양세찬 게임",
-    "artifactName": "yangsechan-${version}-${target}.${ext}",
     "files": [
       "main.js",
       "www/**"
@@ -30,16 +29,18 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "양세찬 게임"
+      "shortcutName": "양세찬 게임",
+      "artifactName": "yangsechan-${version}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "yangsechan-${version}-portable.${ext}"
     }
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
-  },
-  "dependencies": {
-    "@capacitor/android": "^8.5.2",
-    "@capacitor/core": "^8.5.2"
   }
 }
