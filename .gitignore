@@ -2,3 +2,4 @@ node_modules/
 .claude/
 app/dist/
 app/android/
+앱 빌드/
