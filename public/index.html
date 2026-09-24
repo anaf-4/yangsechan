@@ -249,6 +249,16 @@
   .res-actions { display:flex; justify-content:center; gap:16px; margin-top:26px; flex-wrap:wrap; }
   .res-actions .btn { min-height:64px; padding:0 30px; font-size:17px; }
 
+  /* 카운트다운 */
+  #countdown { position:fixed; inset:0; z-index:15; background:rgba(10,12,23,.86); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:20px; }
+  .cd-num { font-family:var(--arcade); font-size:clamp(140px, 26vw, 260px); line-height:1; color:var(--gold); text-shadow:0 10px 0 var(--gold-dk), 0 0 60px rgba(255,194,61,.45); }
+  .cd-num.go { font-family:var(--display); font-size:clamp(90px, 16vw, 170px); color:var(--ivory); text-shadow:0 8px 0 var(--purple); }
+  .cd-num.pop { animation:pop .9s ease-out; }
+  @keyframes pop { 0% { transform:scale(1.9); opacity:0; } 25% { transform:scale(1); opacity:1; } 100% { transform:scale(.92); opacity:1; } }
+  .cd-sub { font-size:clamp(16px, 2vw, 20px); font-weight:700; color:var(--soft); max-width:520px; line-height:1.6; }
+  .cd-sub b { color:var(--gold); }
+  @media (prefers-reduced-motion: reduce) { .cd-num.pop { animation:none; } }
+
   /* 배너·토스트 */
   #banner { position:fixed; top:0; left:0; right:0; z-index:20; background:var(--coral); color:#2b0f08; text-align:center; padding:10px; font-weight:800; }
   #toast { position:fixed; bottom:24px; left:50%; transform:translate(-50%, 20px); z-index:20; max-width:90vw; padding:14px 22px; border-radius:14px; background:var(--ivory); color:var(--ink); font-weight:800; box-shadow:0 10px 30px rgba(0,0,0,.5); opacity:0; transition:opacity .2s, transform .2s; pointer-events:none; }
@@ -534,6 +544,12 @@
   </main>
 </section>
 
+<div id="countdown" class="hidden" role="status" aria-live="assertive">
+  <div class="eyebrow">GET READY</div>
+  <div id="cdNum" class="cd-num">5</div>
+  <div class="cd-sub">내 카드는 <b>나만 몰라요.</b><br>다른 사람들의 제시어를 확인하세요!</div>
+</div>
+
 <div id="toast" role="status"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -698,7 +714,8 @@ function renderGame() {
   const me = S.players.find(p => p.id === S.me), tp = S.players.find(p => p.id === S.turnId);
   const myTurn = S.turnId === S.me;
   $('gCode').textContent = S.code;
-  $('turnInfo').innerHTML = !tp ? '<span>재접속 대기 중</span>'
+  const counting = cdEnd > Date.now();
+  $('turnInfo').innerHTML = counting ? '<span>곧 시작합니다</span>' : !tp ? '<span>재접속 대기 중</span>'
     : `${avatar(tp.name)}${myTurn ? '<b style="color:var(--gold);font-weight:400">내 차례!</b>' : `${esc(tp.name)}<span>님의 차례</span>`}`;
 
   $('cards').innerHTML = S.players.map(p => {
@@ -736,11 +753,28 @@ function renderGame() {
   const wait = $('waitMsg');
   wait.classList.toggle('spec', !!me.rank);
   wait.textContent = me.rank ? '관전 중 — 정답을 맞혔어요! 마지막 1명이 남을 때까지 게임이 계속됩니다.'
-    : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '')
+    : counting ? '' : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '')
     : S.q ? '' : `${tp.name}님이 고민 중…`;
   $('log').innerHTML = S.log.map(l => `<div class="${l.kind}">${esc(l.text.replace(/^[^\p{L}\p{N}"]+/u, ''))}</div>`).join('');
   $('log').scrollTop = $('log').scrollHeight;
 }
+
+// 게임 시작 카운트다운: 5 → 1 → START!
+let cdEnd = 0, cdShown = '';
+function tickCountdown() {
+  const left = cdEnd - Date.now();
+  const on = S?.state === 'playing' && cdEnd && left > -800;
+  $('countdown').classList.toggle('hidden', !on);
+  if (!on) { cdShown = ''; return; }
+  const txt = left > 0 ? String(Math.ceil(left / 1000)) : 'START!';
+  if (txt === cdShown) return;
+  cdShown = txt;
+  const el = $('cdNum');
+  el.textContent = txt;
+  el.classList.toggle('go', left <= 0);
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+setInterval(tickCountdown, 100);
 
 setInterval(() => {
   if (S?.state !== 'playing') return;
@@ -776,6 +810,8 @@ function renderResult() {
 // ---- 소켓 ----
 socket.on('state', s => {
   S = s; endAt = Date.now() + s.remaining;
+  if (s.state !== 'playing') cdEnd = 0;
+  else if (s.startsIn > 0) cdEnd = Date.now() + s.startsIn;
   ({ lobby: renderLobby, playing: renderGame, result: renderResult })[s.state]();
 });
 socket.on('err', toast);

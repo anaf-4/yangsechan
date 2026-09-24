@@ -1,6 +1,7 @@
 // 핵심 게임 흐름 자가 점검: node test.js
 process.env.PORT = 0;
 process.env.TURN_GRACE_MS = 300;
+process.env.COUNTDOWN_MS = 200;
 const assert = require('assert');
 const { io } = require('socket.io-client');
 const server = require('./server');
@@ -37,10 +38,13 @@ server.on('listening', async () => {
   await new Promise(r => { a.once('state', r); c.emit('ready'); });
 
   // 제시어: 본인만 ???
-  const pc = nextState(c, s => s.state === 'playing');
-  const pb = nextState(b, s => s.state === 'playing');
-  const pa = nextState(a, s => s.state === 'playing');
+  // 시작 직후엔 카운트다운(차례 없음) → 끝나면 첫 턴
+  const cd = nextState(a, s => s.state === 'playing');
+  const first = s => s.state === 'playing' && s.turnId;
+  const pc = nextState(c, first), pb = nextState(b, first), pa = nextState(a, first);
   a.emit('start');
+  const s0 = await cd;
+  assert.ok(s0.startsIn > 0 && s0.turnId === null, '카운트다운 중엔 차례 없음');
   const [sa, sb, sc] = await Promise.all([pa, pb, pc]);
   const words = sb.players.map(p => p.word);
   assert.equal(sa.players[0].word, '???');
@@ -89,7 +93,7 @@ server.on('listening', async () => {
   assert.deepEqual(r.players.map(p => p.word), words.map((w, i) => i === 1 ? realB : w));
 
   // 끊긴 플레이어 턴은 건너뜀: 새 게임(A부터) → A 질문 → B·C 투표 → B 차례에 B 끊김 → C 차례
-  const g2 = nextState(c, s => s.state === 'playing');
+  const g2 = nextState(c, s => s.state === 'playing' && s.turnId);
   a.emit('again');
   await g2;
   a.emit('ask', { text: 'q' });

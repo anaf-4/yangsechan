@@ -10,6 +10,7 @@ const MAX_PLAYERS = 8;
 const LOBBY_GRACE_MS = 20000;    // 대기실에서 끊긴 플레이어 제거 유예
 const TURN_GRACE_MS = +process.env.TURN_GRACE_MS || 15000; // 게임 중 끊긴 플레이어 차례를 넘기기 전 대기
 const ROOM_IDLE_MS = 10 * 60000; // 전원 오프라인인 방 삭제
+const COUNTDOWN_MS = process.env.COUNTDOWN_MS ? +process.env.COUNTDOWN_MS : 5000; // 게임 시작 카운트다운
 const TURN_SECS = [30, 45, 60, 90];
 const VOTE_SECS = [10, 15, 20, 30, 45];
 const CUSTOM_CAT = '직접 입력';
@@ -76,6 +77,7 @@ function view(room, me) {
     myCustom: room.custom[me.id] || '',
     turnId: room.state === 'playing' && !room.paused && tp ? tp.id : null,
     remaining: Math.max(0, room.turnEnd - Date.now()),
+    startsIn: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
     noAsk: room.noAsk,
     q: room.q && { text: room.q.text, votes: room.q.votes },
     log: room.log.slice(-80),
@@ -102,7 +104,11 @@ function startGame(room) {
   room.players.forEach((p, i) => Object.assign(p, { word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false }));
   Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false });
   addLog(room, '🎮 게임 시작! 내 제시어를 맞혀보세요.', 'sys');
-  nextTurn(room);
+  // 카운트다운 동안은 차례 없음 → 끝나면 첫 턴
+  clearTimeout(room.timer);
+  room.startAt = Date.now() + COUNTDOWN_MS;
+  room.timer = setTimeout(() => { room.startAt = 0; nextTurn(room); }, COUNTDOWN_MS);
+  sync(room);
 }
 
 function setDeadline(room, ms) {
