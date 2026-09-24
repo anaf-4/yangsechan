@@ -19,7 +19,7 @@
     --display:'Black Han Sans', sans-serif; --arcade:'Bungee', sans-serif; --body:'Gothic A1', system-ui, sans-serif;
   }
   * { box-sizing:border-box; }
-  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); -webkit-font-smoothing:antialiased; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); -webkit-font-smoothing:antialiased; font-synthesis:none; }
   body { min-height:100vh; }
   button, input, select, textarea { font:inherit; color:inherit; }
   button { cursor:pointer; }
@@ -35,7 +35,7 @@
   .h2 { margin:0; font-family:var(--display); font-weight:400; font-size:28px; }
   .label { font-size:13px; font-weight:800; color:var(--muted); letter-spacing:1.5px; }
   .btn { display:inline-flex; align-items:center; justify-content:center; gap:10px; min-height:48px; padding:0 22px; border-radius:14px; border:2px solid var(--line-2); background:transparent; font-weight:800; font-size:16px; white-space:nowrap; flex-shrink:0; transition:transform .08s, box-shadow .08s; }
-  .btn-gold { border:none; background:var(--gold); color:var(--gold-ink); box-shadow:0 6px 0 var(--gold-dk); font-family:var(--display); font-weight:400; font-size:22px; min-height:60px; padding:0 34px; }
+  .btn-gold { border:none; background:var(--gold); color:var(--gold-ink); box-shadow:0 6px 0 var(--gold-dk); font-weight:800; font-size:18px; letter-spacing:-.2px; min-height:60px; padding:0 34px; }
   .btn-gold:active:not(:disabled), .btn-ivory:active:not(:disabled), .vote:active { transform:translateY(4px); box-shadow:0 2px 0 var(--gold-dk); }
   .btn-ivory { border:none; background:var(--ivory); color:var(--ink); box-shadow:0 5px 0 #a89f8a; }
   .btn-icon { width:44px; min-height:44px; padding:0; border-radius:12px; background:var(--bg); }
@@ -68,7 +68,7 @@
   .tagline { margin:0; font-size:clamp(17px, 2vw, 21px); line-height:1.6; color:var(--soft); font-weight:600; }
   .tagline b { color:var(--gold); }
   .cta { display:flex; align-items:center; gap:18px; margin-top:30px; flex-wrap:wrap; }
-  .cta .btn-gold { font-size:28px; min-height:72px; padding:0 44px; }
+  .cta .btn-gold { font-family:var(--display); font-weight:400; font-size:30px; letter-spacing:1px; min-height:72px; padding:0 44px; }
   .fan { position:relative; height:440px; }
   .fan .card { position:absolute; top:90px; width:clamp(150px, 16vw, 200px); height:clamp(210px, 22vw, 280px); }
   .fan .card .who { font-size:14px; font-weight:800; color:#5a5566; }
@@ -200,9 +200,9 @@
   .ask-hint.warn { color:var(--coral); font-weight:800; }
   .bubble-row { display:flex; align-items:flex-start; gap:14px; }
   .bubble-row .avatar { width:44px; height:44px; font-size:22px; }
-  .bubble { background:var(--ivory); color:var(--ink); border-radius:4px 18px 18px 18px; padding:14px 22px; font-family:var(--display); font-size:clamp(20px, 2.4vw, 28px); line-height:1.25; word-break:keep-all; }
+  .bubble { background:var(--ivory); color:var(--ink); border-radius:4px 18px 18px 18px; padding:14px 22px; font-weight:800; font-size:clamp(18px, 2.2vw, 24px); line-height:1.4; word-break:keep-all; }
   .votes { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; }
-  .vote { min-height:70px; border:4px solid transparent; border-radius:16px; font-family:var(--display); font-size:clamp(20px, 2.4vw, 28px); transition:transform .08s; }
+  .vote { min-height:70px; border:4px solid transparent; border-radius:16px; font-weight:800; font-size:clamp(18px, 2vw, 22px); transition:transform .08s; }
   .vote.yes { background:var(--sky); color:#0e1a2b; box-shadow:0 6px 0 var(--sky-dk); }
   .vote.no { background:var(--coral); color:#2b0f08; box-shadow:0 6px 0 var(--coral-dk); }
   .vote.maybe { background:var(--line-2); color:var(--text); box-shadow:0 6px 0 #252b45; }
@@ -263,12 +263,12 @@
   #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
   .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
   @keyframes rise { from { transform:translateY(16px); opacity:0; } }
-  .modal-msg { font-family:var(--display); font-size:24px; line-height:1.4; word-break:keep-all; }
-  .modal-msg b { color:var(--gold); font-weight:400; }
+  .modal-msg { font-weight:800; font-size:22px; line-height:1.45; word-break:keep-all; }
+  .modal-msg b { color:var(--gold); }
   .modal-sub { margin-top:8px; font-size:14px; color:var(--muted); }
   .modal-actions { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:24px; }
   .modal-actions .btn { min-height:56px; font-size:18px; }
-  .modal-actions .btn-gold { font-size:22px; }
+  .modal-actions .btn-gold { font-size:18px; }
   .seat { position:relative; }
   .seat-kick { position:absolute; top:-10px; left:-8px; z-index:2; width:34px; height:34px; border-radius:50%; border:2px solid var(--line-2); background:var(--panel); color:var(--soft); display:flex; align-items:center; justify-content:center; }
   .seat-kick:hover { background:#3a2030; color:var(--coral); border-color:var(--coral); }
@@ -760,7 +760,7 @@ function renderGame() {
   const me = S.players.find(p => p.id === S.me), tp = S.players.find(p => p.id === S.turnId);
   const myTurn = S.turnId === S.me, isHost = S.hostId === S.me;
   $('gCode').textContent = S.code;
-  const counting = cdEnd > Date.now();
+  const counting = S.startsIn > 0;
   $('turnInfo').innerHTML = counting ? '<span>곧 시작합니다</span>' : !tp ? '<span>재접속 대기 중</span>'
     : `${avatar(tp.name)}${myTurn ? '<b style="color:var(--gold);font-weight:400">내 차례!</b>' : `${esc(tp.name)}<span>님의 차례</span>`}`;
 
