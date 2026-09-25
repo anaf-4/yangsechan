@@ -23,7 +23,8 @@
     "win": {
       "target": [
         "portable",
-        "nsis"
+        "nsis",
+        "zip"
       ]
     },
     "nsis": {
@@ -34,6 +35,10 @@
     },
     "portable": {
       "artifactName": "yangsechan-${version}-portable.${ext}"
+    },
+    "executableName": "Yangsechan",
+    "zip": {
+      "artifactName": "yangsechan-${version}-stove.${ext}"
     }
   },
   "devDependencies": {
