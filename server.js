@@ -15,7 +15,7 @@ const TURN_SECS = [30, 45, 60, 90];
 const VOTE_SECS = [10, 15, 20, 30, 45];
 const CUSTOM_CAT = '직접 입력';
 const HINT_EVERY = 5;            // 질문 5번마다 힌트 1개
-const HINT_LEVELS = 3;           // 글자 수 → 초성 → 첫 글자
+const HINT_LEVELS = 3;           // 글자 수 → 초성 1개 → 글자 1개
 const REACTIONS = ['😂', '🤔', '👍', '😮', '🔥', '👏'];
 const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 
@@ -54,14 +54,24 @@ function makeCode() {
   return c;
 }
 
-// 힌트: 1단계 글자 수, 2단계 초성, 3단계 첫 글자 + 초성
+// 힌트: 1단계 글자 수(3글자), 2단계 무작위 한 글자의 초성(□ㅇ□), 3단계 다른 한 글자 공개(고ㅇ□)
+// pos = [초성을 보여줄 글자 순번, 통째로 보여줄 글자 순번] (띄어쓰기 뺀 글자 기준, 게임마다 무작위)
 const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
-const chosung = s => [...s].map(c => { const k = c.charCodeAt(0) - 0xAC00; return k >= 0 && k < 11172 ? CHO[Math.floor(k / 588)] : c; }).join('');
-function hintText(word, level) {
-  const chars = [...word];
-  if (level === 1) return `${chars.filter(c => c.trim()).length}글자`;
-  if (level === 2) return chosung(word);
-  return chars[0] + chosung(chars.slice(1).join(''));
+const chosung = c => { const k = c.charCodeAt(0) - 0xAC00; return k >= 0 && k < 11172 ? CHO[Math.floor(k / 588)] : c; };
+const letterCount = word => [...word].filter(c => c.trim()).length;
+function hintPos(word) {
+  const n = letterCount(word) || 1, a = crypto.randomInt(n);
+  return [a, n > 1 ? (a + 1 + crypto.randomInt(n - 1)) % n : a];
+}
+function hintText(word, level, pos = [0, 1]) {
+  if (level === 1) return `${letterCount(word)}글자`;
+  let k = -1;
+  return [...word].map(c => {
+    if (!c.trim()) return ' ';
+    k++;
+    if (level >= 3 && k === pos[1]) return c;
+    return k === pos[0] ? chosung(c) : '□';
+  }).join('');
 }
 const hintsLeft = p => Math.min(HINT_LEVELS, Math.floor((p.qCount || 0) / HINT_EVERY)) - (p.hintsUsed || 0);
 
@@ -109,7 +119,7 @@ function view(room, me) {
     })),
     customTarget: room.customMode && n > 1 ? room.players[(i + 1) % n].name : null,
     myCustom: room.custom[me.id] || '',
-    myHint: hiding && me.hintsUsed ? hintText(me.word, me.hintsUsed) : '',
+    myHint: hiding && me.hintsUsed ? hintText(me.word, me.hintsUsed, me.hintPos) : '',
     hintsLeft: hiding ? hintsLeft(me) : 0,
     turnId: room.state === 'playing' && !room.paused && tp ? tp.id : null,
     remaining: Math.max(0, room.turnEnd - Date.now()),
@@ -142,7 +152,7 @@ function startGame(room) {
     words.forEach(w => room.usedWords.add(w));
   }
   room.players.forEach((p, i) => Object.assign(p, {
-    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, hintsUsed: 0, lastPoints: null,
+    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, hintsUsed: 0, hintPos: hintPos(words[i]), lastPoints: null,
   }));
   Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false, roundSize: n });
   addLog(room, `🎮 ${room.round + 1}번째 게임 시작! 내 제시어를 맞혀보세요.`, 'sys');
@@ -404,7 +414,7 @@ io.on('connection', socket => {
     if (room.state !== 'playing' || me.rank) return;
     if (hintsLeft(me) <= 0) return `질문을 ${HINT_EVERY}번 할 때마다 힌트를 1개 얻어요.`;
     me.hintsUsed = (me.hintsUsed || 0) + 1;
-    addLog(room, `💡 ${me.name}님이 힌트를 사용했습니다. (${['', '글자 수', '초성', '첫 글자'][me.hintsUsed]})`, 'info');
+    addLog(room, `💡 ${me.name}님이 힌트를 사용했습니다. (${['', '글자 수', '초성 1개', '글자 1개'][me.hintsUsed]})`, 'info');
   });
 
   on('chat', (room, me, d) => {

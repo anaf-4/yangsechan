@@ -14,9 +14,14 @@ assert.ok(!isCorrect('아이언', '아이언맨'));
 assert.ok(isCorrect('고 양 이', '고양이'));
 // 힌트 단계
 assert.equal(hintText('고양이', 1), '3글자');
-assert.equal(hintText('고양이', 2), 'ㄱㅇㅇ');
-assert.equal(hintText('고양이', 3), '고ㅇㅇ');
+// 2단계: 한 글자의 초성만, 3단계: 다른 한 글자 통째로 (위치는 pos로 지정)
+assert.equal(hintText('고양이', 2, [1, 0]), '□ㅇ□');
+assert.equal(hintText('고양이', 3, [1, 0]), '고ㅇ□');
+assert.equal(hintText('고래', 2, [1, 0]), '□ㄹ');
+assert.equal(hintText('김치찌개', 2, [2, 3]), '□□ㅉ□');
 assert.equal(hintText('토이 스토리', 1), '5글자');
+assert.equal(hintText('토이 스토리', 2, [3, 0]), '□□ □ㅌ□');
+assert.equal(hintText('토이 스토리', 3, [3, 0]), '토□ □ㅌ□');
 
 const wait = (sock, ev) => new Promise(r => sock.once(ev, r));
 const emitCb = (sock, ev, d) => new Promise(r => sock.emit(ev, d, r));
@@ -181,7 +186,7 @@ server.on('listening', async () => {
   const used = nextState(x, s => !!s.myHint);
   x.emit('hint');
   const hs2 = await used;
-  assert.equal(hs2.myHint, hintText(xWord, 1));
+  assert.equal(hs2.myHint, hintText(xWord, 1)); // 1단계는 위치와 무관
   assert.equal(hs2.hintsLeft, 0);
   [x, y].forEach(s => s.close());
 
