@@ -32,6 +32,7 @@ jobs:
           java-version: 21
       - run: npm ci
       - run: npx cap add android
+      - run: npx @capacitor/assets generate --android --iconBackgroundColor '#101322' --splashBackgroundColor '#101322' --splashBackgroundColorDark '#101322'
       - run: npx cap sync android
       - run: ./gradlew assembleDebug --no-daemon
         working-directory: app/android

@@ -13,6 +13,7 @@ function createWindow() {
     title: '양세찬 게임',
     backgroundColor: '#101322',
     autoHideMenuBar: true,
+    icon: path.join(__dirname, 'www', 'icon.png'),
   });
   win.loadFile(path.join(__dirname, 'www', 'index.html'));
 

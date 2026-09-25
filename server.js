@@ -18,6 +18,14 @@ const CUSTOM_CAT = '직접 입력';
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') return res.end('ok');
+  // 아이콘·미리보기 이미지 (public/*.png, 이름 규칙으로 경로 조작 차단)
+  if (/^\/[\w-]+\.png$/.test(req.url)) {
+    return fs.readFile(path.join(__dirname, 'public', req.url.slice(1)), (err, buf) => {
+      if (err) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+      res.end(buf);
+    });
+  }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 });

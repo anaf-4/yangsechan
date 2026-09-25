@@ -7,8 +7,7 @@
 <style>
   html, body { margin:0; height:100%; background:#101322; color:#f3eee4; font-family:system-ui, "Malgun Gothic", sans-serif; }
   body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; text-align:center; padding:24px; box-sizing:border-box; }
-  .card { width:120px; height:168px; border-radius:16px; background:#f7f0e1; padding:8px; box-sizing:border-box; box-shadow:0 18px 40px rgba(0,0,0,.5); animation:flip 1.6s ease-in-out infinite; }
-  .in { height:100%; border-radius:10px; border:2px solid #ffc23d; background:#2a2358 repeating-linear-gradient(45deg, #342b6e 0 7px, #2a2358 7px 14px); display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:900; color:#ffc23d; }
+  .logo { width:140px; height:140px; border-radius:30px; box-shadow:0 18px 40px rgba(0,0,0,.5); animation:flip 1.6s ease-in-out infinite; }
   @keyframes flip { 0%, 100% { transform:rotate(-6deg); } 50% { transform:rotate(6deg); } }
   h1 { margin:0; font-size:28px; }
   p { margin:0; color:#9aa1bf; line-height:1.6; }
@@ -16,7 +15,7 @@
 </style>
 </head>
 <body>
-  <div class="card"><div class="in">?</div></div>
+  <img class="logo" src="icon.png" alt="">
   <h1>양세찬 게임</h1>
   <p id="msg">서버에 연결하는 중…<br>처음 접속할 땐 최대 1분 정도 걸릴 수 있어요.</p>
   <button id="retry" onclick="go()">다시 시도</button>
