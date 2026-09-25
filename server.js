@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
-const { categories: WORDS } = require('./words.json');
+const { categories: WORDS, aliases: ALIASES = {} } = require('./words.json');
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 8;
@@ -14,6 +14,10 @@ const COUNTDOWN_MS = process.env.COUNTDOWN_MS ? +process.env.COUNTDOWN_MS : 5000
 const TURN_SECS = [30, 45, 60, 90];
 const VOTE_SECS = [10, 15, 20, 30, 45];
 const CUSTOM_CAT = '직접 입력';
+const HINT_EVERY = 5;            // 질문 5번마다 힌트 1개
+const HINT_LEVELS = 3;           // 글자 수 → 초성 → 첫 글자
+const REACTIONS = ['😂', '🤔', '👍', '😮', '🔥', '👏'];
+const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((req, res) => {
@@ -34,7 +38,9 @@ const rooms = new Map();
 
 const rid = () => crypto.randomBytes(8).toString('hex');
 const clean = (s, max) => String(s ?? '').trim().slice(0, max);
-const norm = s => String(s ?? '').replace(/\s+/g, '').toLowerCase();
+// 정답 비교용: 띄어쓰기·문장부호·대소문자 무시
+const norm = s => String(s ?? '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const isCorrect = (guess, word) => [word, ...(ALIASES[word] || [])].some(w => norm(w) === norm(guess));
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
@@ -47,11 +53,23 @@ function makeCode() {
   return c;
 }
 
+// 힌트: 1단계 글자 수, 2단계 초성, 3단계 첫 글자 + 초성
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const chosung = s => [...s].map(c => { const k = c.charCodeAt(0) - 0xAC00; return k >= 0 && k < 11172 ? CHO[Math.floor(k / 588)] : c; }).join('');
+function hintText(word, level) {
+  const chars = [...word];
+  if (level === 1) return `${chars.filter(c => c.trim()).length}글자`;
+  if (level === 2) return chosung(word);
+  return chars[0] + chosung(chars.slice(1).join(''));
+}
+const hintsLeft = p => Math.min(HINT_LEVELS, Math.floor((p.qCount || 0) / HINT_EVERY)) - (p.hintsUsed || 0);
+
 function newRoom(isPublic) {
   const room = {
     isPublic: !!isPublic,
     code: makeCode(), hostId: null, players: [], state: 'lobby',
     category: '전체', customMode: false, custom: {}, turnSec: 45, voteSec: 20, maxPlayers: MAX_PLAYERS, wordList: [],
+    spectatorVote: true, round: 0, usedWords: new Set(),
     turnIdx: -1, turnEnd: 0, q: null, noAsk: false, log: [], nextRank: 1, timer: null, idleTimer: null,
   };
   rooms.set(room.code, room);
@@ -63,26 +81,34 @@ function deleteRoom(room) {
   rooms.delete(room.code);
 }
 
-// rank: 0 = 진행 중, 1.. = 등수, -1 = 기권
+// rank: 0 = 진행 중, 1.. = 등수, -1 = 기권·퇴장
 const active = room => room.players.filter(p => !p.rank);
 const host = room => room.players.find(p => p.id === room.hostId && p.sid) || room.players.find(p => p.sid);
 const isHost = (room, me) => host(room) === me;
 const addLog = (room, text, kind = 'info') => { room.log.push({ text, kind }); if (room.log.length > 200) room.log.shift(); };
+// 답변할 수 있는 사람: 차례인 사람 제외, 아직 못 맞힌 사람 (+ 설정 시 맞힌 관전자)
+const canVote = (room, p) => p !== room.players[room.turnIdx] && p.rank >= 0 && (!p.rank || room.spectatorVote);
+const emitAll = (room, ev, data) => { for (const p of room.players) if (p.sid) io.to(p.sid).emit(ev, data); };
 
 function view(room, me) {
   const n = room.players.length, i = room.players.indexOf(me), tp = room.players[room.turnIdx];
+  const hiding = room.state === 'playing' && !me.rank; // 내 제시어를 아직 모르는 상태
   return {
     code: room.code, me: me.id, hostId: host(room)?.id, state: room.state,
     category: room.category, customMode: room.customMode, turnSec: room.turnSec,
     voteSec: room.voteSec, maxPlayers: room.maxPlayers, wordList: room.wordList, isPublic: room.isPublic,
+    spectatorVote: room.spectatorVote, round: room.round, reactions: REACTIONS, hintEvery: HINT_EVERY,
     categories: ['전체', ...Object.keys(WORDS), CUSTOM_CAT],
     players: room.players.map(p => ({
       id: p.id, name: p.name, online: !!p.sid, kicked: !!p.kicked, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
+      qCount: p.qCount || 0, score: p.score || 0, lastPoints: p.lastPoints ?? null,
       // 핵심 규칙: 진행 중인 본인 제시어만 가림 (맞힌 뒤엔 공개)
-      word: room.state === 'lobby' ? null : (p === me && !p.rank && room.state === 'playing') ? '???' : p.word,
+      word: room.state === 'lobby' ? null : (p === me && hiding) ? '???' : p.word,
     })),
     customTarget: room.customMode && n > 1 ? room.players[(i + 1) % n].name : null,
     myCustom: room.custom[me.id] || '',
+    myHint: hiding && me.hintsUsed ? hintText(me.word, me.hintsUsed) : '',
+    hintsLeft: hiding ? hintsLeft(me) : 0,
     turnId: room.state === 'playing' && !room.paused && tp ? tp.id : null,
     remaining: Math.max(0, room.turnEnd - Date.now()),
     startsIn: room.startAt ? Math.max(0, room.startAt - Date.now()) : 0,
@@ -104,14 +130,20 @@ function startGame(room) {
     if (words.some(w => !w)) return '모든 플레이어가 제시어를 입력해야 합니다.';
     if (new Set(words.map(norm)).size !== n) return '중복된 제시어가 있습니다.';
   } else {
-    const pool = [...new Set(room.category === '전체' ? Object.values(WORDS).flat()
+    const all = [...new Set(room.category === '전체' ? Object.values(WORDS).flat()
       : room.category === CUSTOM_CAT ? room.wordList : WORDS[room.category])];
-    if (pool.length < n) return `제시어가 부족합니다 (${pool.length}개, 최소 ${n}개 필요).`;
+    if (all.length < n) return `제시어가 부족합니다 (${all.length}개, 최소 ${n}개 필요).`;
+    // 이 방에서 이미 나온 제시어는 빼고, 모자라면 다시 처음부터
+    let pool = all.filter(w => !room.usedWords.has(w));
+    if (pool.length < n) { room.usedWords.clear(); pool = all; }
     words = shuffle(pool).slice(0, n);
+    words.forEach(w => room.usedWords.add(w));
   }
-  room.players.forEach((p, i) => Object.assign(p, { word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false }));
-  Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false });
-  addLog(room, '🎮 게임 시작! 내 제시어를 맞혀보세요.', 'sys');
+  room.players.forEach((p, i) => Object.assign(p, {
+    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, hintsUsed: 0, lastPoints: null,
+  }));
+  Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false, roundSize: n });
+  addLog(room, `🎮 ${room.round + 1}번째 게임 시작! 내 제시어를 맞혀보세요.`, 'sys');
   // 카운트다운 동안은 차례 없음 → 끝나면 첫 턴
   clearTimeout(room.timer);
   room.startAt = Date.now() + COUNTDOWN_MS;
@@ -178,8 +210,7 @@ function finishQuestion(room) {
 
 function checkVotes(room) {
   if (room.state !== 'playing' || !room.q) return;
-  const tp = room.players[room.turnIdx];
-  const voters = active(room).filter(p => p !== tp && p.sid);
+  const voters = room.players.filter(p => p.sid && canVote(room, p));
   if (voters.every(p => room.q.votes[p.id])) finishQuestion(room);
 }
 
@@ -187,6 +218,10 @@ function endGame(room) {
   clearTimeout(room.timer);
   room.q = null; room.startAt = 0;
   active(room).forEach(p => { p.rank = room.nextRank++; });
+  // 누적 점수: 참가 인원 n명일 때 1등 n-1점, 2등 n-2점 … 꼴찌·기권 0점
+  const n = room.roundSize || room.players.length;
+  room.players.forEach(p => { p.lastPoints = p.rank > 0 ? Math.max(0, n - p.rank) : 0; p.score = (p.score || 0) + p.lastPoints; });
+  room.round++;
   room.state = 'result';
   addLog(room, '🏁 게임 종료!', 'sys');
   sync(room);
@@ -239,7 +274,7 @@ function join(socket, room, { name, token }) {
     if (room.state !== 'lobby') return '이미 게임이 진행 중입니다.';
     if (room.players.length >= room.maxPlayers) return `방이 가득 찼습니다 (최대 ${room.maxPlayers}명).`;
     if (room.players.some(x => x.name === name)) return '이미 사용 중인 닉네임입니다.';
-    p = { id: rid(), token, name, sid: null, ready: false, rank: 0 };
+    p = { id: rid(), token, name, sid: null, ready: false, rank: 0, score: 0 };
     room.players.push(p);
     room.custom = {};
     if (!room.hostId) room.hostId = p.id;
@@ -276,6 +311,15 @@ io.on('connection', socket => {
     cb(err ? { error: err } : { code: room.code });
   });
 
+  // 리액션: 기록에 남기지 않고 화면에 잠깐 띄우기만 함
+  socket.on('react', (d) => {
+    const c = ctx();
+    if (!c || c.room.state !== 'playing' || !REACTIONS.includes(d?.e)) return;
+    if (Date.now() - (c.me.lastSaid || 0) < CHAT_GAP_MS / 2) return;
+    c.me.lastSaid = Date.now();
+    emitAll(c.room, 'reaction', { id: c.me.id, e: d.e });
+  });
+
   // 방 안에서의 행동: 에러 문자열을 반환하면 본인에게만 알림, 아니면 전체 동기화
   const on = (ev, fn) => socket.on(ev, (d) => {
     const c = ctx();
@@ -292,6 +336,7 @@ io.on('connection', socket => {
     if (d.category === '전체' || d.category === CUSTOM_CAT || Object.hasOwn(WORDS, d.category)) room.category = d.category;
     if ('wordList' in d) room.wordList = [...new Set(String(d.wordList).split(/[,\n]/).map(w => clean(w, 20)).filter(Boolean))].slice(0, 200);
     if ('isPublic' in d) room.isPublic = !!d.isPublic;
+    if ('spectatorVote' in d) room.spectatorVote = !!d.spectatorVote;
     if ('customMode' in d) { room.customMode = !!d.customMode; room.custom = {}; }
     if (TURN_SECS.includes(+d.turnSec)) room.turnSec = +d.turnSec;
     if (VOTE_SECS.includes(+d.voteSec)) room.voteSec = +d.voteSec;
@@ -301,6 +346,12 @@ io.on('connection', socket => {
       if (m < room.players.length) return `현재 인원(${room.players.length}명)보다 적게 설정할 수 없습니다.`;
       room.maxPlayers = m;
     }
+  });
+
+  on('resetScores', (room, me) => {
+    if (!isHost(room, me) || room.state !== 'lobby') return '방장만 초기화할 수 있습니다.';
+    room.players.forEach(p => { p.score = 0; p.lastPoints = null; });
+    room.round = 0;
   });
 
   on('customWord', (room, me, d) => {
@@ -333,23 +384,41 @@ io.on('connection', socket => {
     const text = clean(d.text, 100);
     if (!text) return '질문을 입력하세요.';
     room.q = { text, votes: {} };
+    me.qCount = (me.qCount || 0) + 1;
     addLog(room, `❓ ${me.name}: ${text}`, 'question');
+    if (me.qCount % HINT_EVERY === 0 && me.qCount / HINT_EVERY <= HINT_LEVELS) addLog(room, `💡 ${me.name}님이 힌트를 얻었습니다.`, 'info');
     setDeadline(room, room.voteSec * 1000); // 질문 후엔 투표 시간으로 타이머 재설정
     checkVotes(room);
   });
 
   on('vote', (room, me, d) => {
-    if (room.state !== 'playing' || !room.q || me.rank || room.players[room.turnIdx] === me) return;
+    if (room.state !== 'playing' || !room.q || !canVote(room, me)) return;
     if (!['yes', 'no', 'maybe'].includes(d.answer)) return;
     room.q.votes[me.id] = d.answer;
     checkVotes(room);
+  });
+
+  on('hint', (room, me) => {
+    if (room.state !== 'playing' || me.rank) return;
+    if (hintsLeft(me) <= 0) return `질문을 ${HINT_EVERY}번 할 때마다 힌트를 1개 얻어요.`;
+    me.hintsUsed = (me.hintsUsed || 0) + 1;
+    addLog(room, `💡 ${me.name}님이 힌트를 사용했습니다. (${['', '글자 수', '초성', '첫 글자'][me.hintsUsed]})`, 'info');
+  });
+
+  on('chat', (room, me, d) => {
+    if (room.state !== 'playing') return;
+    const text = clean(d.text, 60);
+    if (!text) return;
+    if (Date.now() - (me.lastSaid || 0) < CHAT_GAP_MS) return '너무 빨라요. 잠시 후 다시 보내 주세요.';
+    me.lastSaid = Date.now();
+    addLog(room, `${me.name}: ${text}`, 'chat');
   });
 
   on('guess', (room, me, d) => {
     if (room.state !== 'playing' || room.players[room.turnIdx] !== me || room.q) return '지금은 정답을 도전할 수 없습니다.';
     const text = clean(d.text, 20);
     if (!text) return '정답을 입력하세요.';
-    if (norm(text) === norm(me.word)) {
+    if (isCorrect(text, me.word)) {
       me.rank = room.nextRank++;
       addLog(room, `🎉 ${me.name}님 정답! "${me.word}" — ${me.rank}등`, 'correct');
     } else {
@@ -398,4 +467,4 @@ io.on('connection', socket => {
 });
 
 server.listen(PORT, () => console.log(`양세찬 게임 서버: http://localhost:${server.address().port}`));
-module.exports = server;
+module.exports = { server, isCorrect, hintText, norm };

@@ -4,7 +4,19 @@ process.env.TURN_GRACE_MS = 300;
 process.env.COUNTDOWN_MS = 200;
 const assert = require('assert');
 const { io } = require('socket.io-client');
-const server = require('./server');
+const { server, isCorrect, hintText } = require('./server');
+
+// 정답 판정: 띄어쓰기·문장부호·대소문자 무시 + 별칭
+assert.ok(isCorrect('아이언 맨!', '아이언맨'));
+assert.ok(isCorrect('Iron-Man', '아이언맨'));
+assert.ok(isCorrect('핸드폰', '스마트폰'));
+assert.ok(!isCorrect('아이언', '아이언맨'));
+assert.ok(isCorrect('고 양 이', '고양이'));
+// 힌트 단계
+assert.equal(hintText('고양이', 1), '3글자');
+assert.equal(hintText('고양이', 2), 'ㄱㅇㅇ');
+assert.equal(hintText('고양이', 3), '고ㅇㅇ');
+assert.equal(hintText('토이 스토리', 1), '5글자');
 
 const wait = (sock, ev) => new Promise(r => sock.once(ev, r));
 const emitCb = (sock, ev, d) => new Promise(r => sock.emit(ev, d, r));
@@ -90,6 +102,8 @@ server.on('listening', async () => {
   b.emit('guess', { text: realB });
   const r = await end;
   assert.deepEqual(r.players.map(p => p.rank), [1, 2, 3]);
+  assert.deepEqual(r.players.map(p => p.score), [2, 1, 0], '누적 점수: 3명 중 1등 2점, 2등 1점');
+  assert.equal(r.round, 1);
   assert.deepEqual(r.players.map(p => p.word), words.map((w, i) => i === 1 ? realB : w));
 
   // 끊긴 플레이어 턴은 건너뜀: 새 게임(A부터) → A 질문 → B·C 투표 → B 차례에 B 끊김 → C 차례
@@ -118,6 +132,14 @@ server.on('listening', async () => {
   const s4 = await cT2;
   assert.equal(s4.state, 'playing');
   assert.equal(s4.players[0].rank, 1);
+
+  // 맞힌 A도 답변 가능(기본 설정): C 질문 → A 투표만으로 결과
+  c.emit('ask', { text: 'q3' });
+  await nextState(a, s => !!s.q);
+  const back = nextState(a, s => !s.q && s.turnId === s.players[2].id);
+  a.emit('vote', { answer: 'yes' });
+  const s4b = await back;
+  assert.ok(s4b.log.some(l => l.text.includes('예 1 / 아니오 0')), '관전자 투표 반영');
 
   // 남은 B·C 모두 끊김 → 종료가 아니라 대기, C 재접속 시 재개
   const paused = nextState(a, s => s.turnId === null);

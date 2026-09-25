@@ -270,6 +270,36 @@
   .cd-sub b { color:var(--gold); }
   @media (prefers-reduced-motion: reduce) { .cd-num.pop { animation:none; } }
 
+  /* 점수·힌트·리액션·채팅 */
+  .seat-c .score { font-family:var(--arcade); font-size:13px; color:var(--gold); }
+  .tag .qc { font-family:var(--arcade); font-size:11px; opacity:.7; margin-left:2px; }
+  .card.back .back-in { position:relative; }
+  .back-in .hint { position:absolute; left:8px; right:8px; bottom:10px; padding:4px 6px; border-radius:8px; background:var(--bg); color:var(--gold); text-align:center; font-weight:800; font-size:14px; letter-spacing:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hintbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 14px; border-radius:14px; background:var(--bg); font-size:14px; }
+  .hintbar b { color:var(--gold); letter-spacing:1px; font-size:16px; }
+  .hintbar .grow { color:var(--muted); min-width:140px; }
+  .hintbar .btn { min-height:40px; padding:0 14px; font-size:14px; }
+  .reacts { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .reacts button { width:50px; height:44px; border-radius:12px; border:2px solid var(--line-2); background:var(--panel); font-size:22px; line-height:1; transition:transform .08s; }
+  .reacts button:active { transform:scale(.88); }
+  .float-react { position:absolute; left:50%; top:35%; z-index:3; font-size:42px; pointer-events:none; animation:floatUp 1.6s ease-out forwards; }
+  @keyframes floatUp { 0% { transform:translate(-50%, 10px) scale(.6); opacity:0; } 15% { transform:translate(-50%, 0) scale(1.15); opacity:1; } 100% { transform:translate(-50%, -120px) scale(1); opacity:0; } }
+  @media (prefers-reduced-motion: reduce) { .float-react { animation-duration:.01s; } }
+  .chat-row { display:flex; gap:8px; }
+  .chat-row .field { height:44px; font-size:14px; padding:0 12px; font-weight:600; }
+  .chat-row .btn { min-height:44px; padding:0 14px; font-size:14px; }
+  #log .chat { color:var(--text); } #log .chat::before { background:var(--sky); border-radius:2px; }
+  .pod .pts, .scoreboard .pts { font-family:var(--arcade); color:var(--gold); }
+  .pod .pts { font-size:16px; }
+  .scoreboard { max-width:744px; margin:22px auto 0; text-align:left; padding:18px 22px; }
+  .scoreboard ol { list-style:none; margin:10px 0 0; padding:0; }
+  .scoreboard li { display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--line); }
+  .scoreboard .no { font-family:var(--arcade); width:28px; color:var(--muted); }
+  .scoreboard li.top .no, .scoreboard li.top .total { color:var(--gold); }
+  .scoreboard .nm { flex:1; font-weight:800; }
+  .scoreboard .pts { font-size:13px; opacity:.8; }
+  .scoreboard .total { font-family:var(--arcade); font-size:18px; min-width:64px; text-align:right; }
+
   /* 확인 창 */
   #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
   .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
@@ -473,6 +503,8 @@
       </div>
       <label class="toggle">서로 제시어 지정하기 <input type="checkbox" id="customChk"></label>
       <label class="toggle">공개방 (목록에 표시) <input type="checkbox" id="publicChk"></label>
+      <label class="toggle">맞힌 사람도 답변하기 <input type="checkbox" id="spectatorChk"></label>
+      <button id="resetScoreBtn" class="btn hidden">누적 점수 초기화</button>
       <div class="sub" id="hostNote">설정은 방장만 바꿀 수 있어요.</div>
       <div class="custombox" id="customBox">
         <div id="customLabel" style="font-weight:700;line-height:1.5"></div>
@@ -521,7 +553,9 @@
   <div class="game-grid">
     <div class="game-main">
       <div class="table" id="cards"></div>
+      <div class="reacts" id="reacts" aria-label="리액션 보내기"></div>
       <div class="panel stage">
+        <div class="hintbar hidden" id="hintBar"></div>
         <div id="askBox" class="hidden" style="display:flex;flex-direction:column;gap:12px">
           <div class="ask-hint" id="askHint">내 차례! 질문을 하거나 정답에 도전하세요.</div>
           <div class="ask-row">
@@ -546,6 +580,11 @@
         <button id="leaveGameBtn" class="btn">기권하기</button>
       </div>
       <div id="log" aria-live="polite"></div>
+      <div class="chat-row">
+        <label class="sr" for="chatIn">채팅</label>
+        <input id="chatIn" class="field" maxlength="60" placeholder="채팅 (정답 스포 금지!)" autocomplete="off">
+        <button id="chatBtn" class="btn">전송</button>
+      </div>
     </div>
   </div>
 </main>
@@ -558,6 +597,7 @@
     <h1 class="title">최종 순위</h1>
     <div class="podium" id="podium"></div>
     <ol class="rest" id="rList"></ol>
+    <div class="panel scoreboard" id="scoreboard"></div>
     <div class="res-actions" id="rHost">
       <button id="lobbyBtn" class="btn">대기실로 돌아가기</button>
       <button id="againBtn" class="btn btn-gold">
@@ -694,6 +734,8 @@ $('wordIn').onchange = () => act('settings', { wordList: $('wordIn').value });
 $('maxMinus').onclick = () => act('settings', { maxPlayers: S.maxPlayers - 1 });
 $('maxPlus').onclick = () => act('settings', { maxPlayers: S.maxPlayers + 1 });
 $('publicChk').onchange = () => act('settings', { isPublic: $('publicChk').checked });
+$('spectatorChk').onchange = () => act('settings', { spectatorVote: $('spectatorChk').checked });
+$('resetScoreBtn').onclick = () => ask2('누적 점수를<br>초기화하시겠습니까?', `지금까지 ${S.round}판의 점수가 모두 0점이 돼요.`, () => act('resetScores'));
 $('customChk').onchange = () => act('settings', { customMode: $('customChk').checked });
 $('customBtn').onclick = () => { act('customWord', { word: $('customIn').value }); $('customIn').value = ''; };
 $('customIn').onkeydown = e => { if (e.key === 'Enter') $('customBtn').click(); };
@@ -720,6 +762,7 @@ function renderLobby() {
       ${avatar(p.name)}
       <div class="pname">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</div>
       <div class="stamp ${host ? 'host' : p.ready ? 'on' : ''}">${host ? 'HOST' : p.ready ? 'READY' : 'WAIT'}</div>
+      ${S.round ? `<div class="score">${p.score}점</div>` : ''}
       ${S.customMode ? `<div class="wsub">${p.submitted ? '제시어 제출 완료' : '제시어 작성 중'}</div>` : ''}
       ${p.online ? '' : `<div class="wsub">${ICON.off} 연결 끊김</div>`}
     </div>`;
@@ -732,8 +775,9 @@ function renderLobby() {
   seg($('secSeg'), [30, 45, 60, 90], S.turnSec, 'turnSec');
   seg($('voteSeg'), [10, 15, 20, 30, 45], S.voteSec, 'voteSec');
   $('maxVal').textContent = S.maxPlayers;
-  $('customChk').checked = S.customMode; $('publicChk').checked = S.isPublic;
-  for (const id of ['catSel', 'customChk', 'publicChk', 'wordIn', 'maxMinus', 'maxPlus']) $(id).disabled = !isHost;
+  $('customChk').checked = S.customMode; $('publicChk').checked = S.isPublic; $('spectatorChk').checked = S.spectatorVote;
+  for (const id of ['catSel', 'customChk', 'publicChk', 'spectatorChk', 'wordIn', 'maxMinus', 'maxPlus']) $(id).disabled = !isHost;
+  $('resetScoreBtn').classList.toggle('hidden', !isHost || !S.round);
   for (const b of document.querySelectorAll('#secSeg button, #voteSeg button')) b.disabled = !isHost;
   $('maxMinus').disabled ||= S.maxPlayers <= Math.max(2, S.players.length);
   $('maxPlus').disabled ||= S.maxPlayers >= 8;
@@ -765,6 +809,20 @@ const guess = () => { act('guess', { text: $('gIn').value }); $('gIn').value = '
 $('askBtn').onclick = ask; $('qIn').onkeydown = e => { if (e.key === 'Enter') ask(); };
 $('guessBtn').onclick = guess; $('gIn').onkeydown = e => { if (e.key === 'Enter') guess(); };
 $('qBox').onclick = e => { const a = e.target.closest('[data-vote]')?.dataset.vote; if (a) act('vote', { answer: a }); };
+$('hintBar').onclick = e => { if (e.target.closest('#hintBtn')) act('hint'); };
+$('reacts').onclick = e => { const x = e.target.closest('[data-e]')?.dataset.e; if (x) socket.emit('react', { e: x }); };
+const chat = () => { const t = $('chatIn').value.trim(); if (t) act('chat', { text: t }); $('chatIn').value = ''; };
+$('chatBtn').onclick = chat; $('chatIn').onkeydown = e => { if (e.key === 'Enter') chat(); };
+// 누가 리액션을 보내면 그 사람 카드 위로 이모지가 떠오름
+socket.on('reaction', ({ id, e }) => {
+  const seat = document.querySelector(`#cards [data-pid="${CSS.escape(id)}"]`);
+  if (!seat) return;
+  const el = document.createElement('span');
+  el.className = 'float-react'; el.textContent = e;
+  el.style.left = `${35 + Math.random() * 30}%`;
+  seat.appendChild(el);
+  setTimeout(() => el.remove(), 1700);
+});
 
 function renderGame() {
   show('game');
@@ -780,11 +838,22 @@ function renderGame() {
     const ribbon = p.rank > 0 ? `<div class="ribbon">${p.rank}등</div>` : p.rank < 0 ? `<div class="ribbon quit">${p.kicked ? '퇴장' : '기권'}</div>` : '';
     const kick = isHost && p.id !== S.me && p.rank >= 0 ? `<button class="seat-kick" data-kick="${p.id}" aria-label="${esc(p.name)} 강퇴">${ICON.x}</button>` : '';
     const card = hidden
-      ? '<div class="card back"><div class="back-in"><div class="qmark">?</div></div></div>'
+      ? `<div class="card back"><div class="back-in"><div class="qmark">?</div>${S.myHint ? `<div class="hint">${esc(S.myHint)}</div>` : ''}</div></div>`
       : `<div class="card face"><span class="brand">YSC</span><span class="word">${esc(p.word)}</span>${ribbon}</div>`;
-    return `<div class="seat ${p.id === S.turnId ? 'turn' : ''} ${p.rank ? 'done' : ''} ${p.online ? '' : 'off'} ${p.id === S.me ? 'mine' : ''}">
-      ${kick}${card}<div class="tag">${p.online ? '' : ICON.off}${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</div></div>`;
+    return `<div class="seat ${p.id === S.turnId ? 'turn' : ''} ${p.rank ? 'done' : ''} ${p.online ? '' : 'off'} ${p.id === S.me ? 'mine' : ''}" data-pid="${p.id}">
+      ${kick}${card}<div class="tag">${p.online ? '' : ICON.off}${esc(p.name)}${p.id === S.me ? ' (나)' : ''}<span class="qc" title="질문 횟수">Q${p.qCount}</span></div></div>`;
   }).join('');
+
+  if ($('reacts').childElementCount !== S.reactions.length)
+    $('reacts').innerHTML = S.reactions.map(x => `<button data-e="${x}" aria-label="리액션 ${x}">${x}</button>`).join('');
+
+  // 힌트: 질문 N번마다 1개 (글자 수 → 초성 → 첫 글자)
+  const earned = Math.min(3, Math.floor(me.qCount / S.hintEvery)), used = earned - S.hintsLeft;
+  $('hintBar').classList.toggle('hidden', !!me.rank || counting);
+  $('hintBar').innerHTML = `
+    <span>힌트</span>${S.myHint ? `<b>${esc(S.myHint)}</b>` : ''}
+    <span class="grow">${used >= 3 ? '힌트를 모두 사용했어요' : S.hintsLeft ? `사용 가능한 힌트 ${S.hintsLeft}개` : `다음 힌트까지 질문 ${S.hintEvery - (me.qCount % S.hintEvery)}번`}</span>
+    ${S.hintsLeft ? `<button id="hintBtn" class="btn btn-gold">힌트 보기</button>` : ''}`;
 
   $('askBox').classList.toggle('hidden', !myTurn || !!S.q);
   $('qIn').disabled = $('askBtn').disabled = S.noAsk;
@@ -795,7 +864,7 @@ function renderGame() {
     const c = { yes: 0, no: 0, maybe: 0 };
     Object.values(S.q.votes).forEach(v => c[v]++);
     const total = Math.max(1, c.yes + c.no + c.maybe);
-    const canVote = !me.rank && !myTurn, mv = S.q.votes[S.me];
+    const canVote = me.rank >= 0 && !myTurn && (!me.rank || S.spectatorVote), mv = S.q.votes[S.me];
     $('qBox').innerHTML = `
       <div class="bubble-row">${avatar(tp?.name ?? '?')}<div class="bubble">${esc(S.q.text)}</div></div>
       ${canVote ? `<div class="votes">${Object.keys(LABEL).map(a => `<button data-vote="${a}" class="vote ${a} ${mv === a ? 'sel' : ''}" aria-pressed="${mv === a}">${LABEL[a]}</button>`).join('')}</div>` : ''}
@@ -804,13 +873,13 @@ function renderGame() {
         <div class="bar"><i style="width:${c[a] / total * 100}%;background:${BAR[a]}"></i></div></div>`).join('')}</div>`;
   } else $('qBox').innerHTML = '';
 
-  const voters = S.players.filter(p => !p.rank && p.online && p.id !== S.turnId).length;
+  const voters = S.players.filter(p => p.online && p.id !== S.turnId && p.rank >= 0 && (!p.rank || S.spectatorVote)).length;
   $('timerLabel').textContent = S.q ? '투표 마감까지' : '남은 시간';
   $('timerSub').textContent = S.q ? `${voters}명 중 ${Object.keys(S.q.votes).length}명 답변` : '';
 
   const wait = $('waitMsg');
   wait.classList.toggle('spec', !!me.rank);
-  wait.textContent = me.rank ? '관전 중 — 정답을 맞혔어요! 마지막 1명이 남을 때까지 게임이 계속됩니다.'
+  wait.textContent = me.rank ? `관전 중 — 정답을 맞혔어요!${S.spectatorVote ? ' 답변은 계속 할 수 있어요.' : ''} 마지막 1명이 남을 때까지 게임이 계속됩니다.`
     : counting ? '' : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '')
     : S.q ? '' : `${tp.name}님이 고민 중…`;
   $('log').innerHTML = S.log.map(l => `<div class="${l.kind}">${esc(l.text.replace(/^[^\p{L}\p{N}"]+/u, ''))}</div>`).join('');
@@ -856,11 +925,17 @@ function renderResult() {
   const quit = S.players.filter(p => p.rank < 0);
   const pod = p => `<div class="pod p${p.rank}">
       <div class="card face"><span class="who">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span><span class="word">${esc(p.word)}</span></div>
+      <div class="pts">+${p.lastPoints}점</div>
       <div class="stand">${p.rank}</div></div>`;
   $('podium').innerHTML = [ranked[1], ranked[0], ranked[2]].filter(Boolean).map(pod).join('');
   $('rList').innerHTML = [...ranked.slice(3), ...quit].map(p => `
     <li><span class="pl">${p.rank > 0 ? p.rank : p.kicked ? '퇴장' : '기권'}</span><span class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span><span class="wd">${esc(p.word)}</span></li>`).join('');
   $('rList').classList.toggle('hidden', !$('rList').children.length);
+  // 누적 점수판 (방에서 한 판들의 합계)
+  const board = [...S.players].sort((a, b) => b.score - a.score);
+  $('scoreboard').innerHTML = `<div class="phead"><h2 class="h2" style="font-size:22px">누적 점수</h2><span class="sub">${S.round}판 · 1등 ${S.players.length - 1}점, 2등 ${Math.max(0, S.players.length - 2)}점 …</span></div>
+    <ol>${board.map((p, i) => `<li class="${i === 0 && p.score ? 'top' : ''}"><span class="no">${i + 1}</span><span class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span>
+      <span class="pts">+${p.lastPoints ?? 0}</span><span class="total">${p.score}점</span></li>`).join('')}</ol>`;
   $('rHost').classList.toggle('hidden', !isHost);
   $('rWait').classList.toggle('hidden', isHost);
 }

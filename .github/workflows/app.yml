@@ -1,6 +1,7 @@
 # 앱 빌드: APK(안드로이드) + EXE(윈도우)
 # - app/ 폴더가 바뀌어 main에 푸시되거나, Actions 탭에서 수동 실행하면 빌드 → Artifacts에서 다운로드
-# - v로 시작하는 태그(예: v1.0.0)를 푸시하면 GitHub Releases에 파일이 올라감
+# - v로 시작하는 태그(예: v1.1.0)를 푸시하면 GitHub Releases에 파일이 올라감
+# - APK는 저장소 Secrets의 고정 서명 키로 서명 → 새 버전을 기존 앱 위에 덮어 설치 가능
 name: Build apps
 
 on:
@@ -15,29 +16,42 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
       - run: npm ci
       - run: npx cap add android
       - run: npx @capacitor/assets generate --android --iconBackgroundColor '#101322' --splashBackgroundColor '#101322' --splashBackgroundColorDark '#101322'
+      # 버전: 이름은 package.json, 번호는 빌드 번호(항상 증가해야 업데이트 설치 가능)
+      - run: |
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"$(node -p "require('./package.json').version")\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
       - run: npx cap sync android
-      - run: ./gradlew assembleDebug --no-daemon
-        working-directory: app/android
-      - run: cp android/app/build/outputs/apk/debug/app-debug.apk yangsechan.apk
-      - uses: actions/upload-artifact@v5
+      - name: Build signed APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          npx cap build android --androidreleasetype APK --signing-type apksigner \
+            --keystorepath "$RUNNER_TEMP/release.jks" --keystorepass "$KEYSTORE_PASSWORD" \
+            --keystorealias "$KEY_ALIAS" --keystorealiaspass "$KEYSTORE_PASSWORD"
+          rm -f "$RUNNER_TEMP/release.jks"
+          cp "$(find android/app/build/outputs/apk/release -name '*-signed.apk' | head -1)" yangsechan.apk
+      - uses: actions/upload-artifact@v7
         with:
           name: yangsechan-apk
           path: app/yangsechan.apk
@@ -48,15 +62,15 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npx electron-builder --win portable nsis --publish never
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: yangsechan-exe
           path: app/dist/*.exe
@@ -64,12 +78,12 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [apk, exe]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: out/*
