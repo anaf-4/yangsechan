@@ -587,10 +587,13 @@ io.on('connection', socket => {
 });
 
 // Render가 새 버전을 배포하며 이 서버를 끌 때: 접속자에게 알리고 종료 (방은 메모리에만 있어 사라짐)
-process.on('SIGTERM', () => {
+// 윈도우 서비스(NSSM)로 돌릴 때는 종료 신호가 Ctrl+C(SIGINT)로 옴
+const shutdown = () => {
   for (const room of rooms.values()) emitAll(room, 'serverRestart');
   setTimeout(() => process.exit(0), 1000);
-});
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 server.listen(PORT, () => console.log(`양세찬 게임 서버: http://localhost:${server.address().port}`));
 module.exports = { server, isCorrect, hintText, norm, maskText, flat, hasBad, nearMiss };

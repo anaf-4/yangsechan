@@ -4,7 +4,7 @@
   "webDir": "www",
   "server": {
     "androidScheme": "https",
-    "allowNavigation": ["yangsechan.onrender.com"]
+    "allowNavigation": ["yangsechan.kr", "yangsechan.onrender.com"]
   },
   "android": {
     "backgroundColor": "#101322"

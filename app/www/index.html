@@ -20,19 +20,32 @@
   <p id="msg">서버에 연결하는 중…<br>처음 접속할 땐 최대 1분 정도 걸릴 수 있어요.</p>
   <button id="retry" onclick="go()">다시 시도</button>
 <script>
-  // 게임 서버 주소. 서버를 옮기면 여기만 바꾸면 됩니다.
-  var GAME_URL = 'https://yangsechan.onrender.com/';
-  function go() {
-    document.getElementById('retry').style.display = 'none';
-    document.getElementById('msg').innerHTML = '서버에 연결하는 중…<br>처음 접속할 땐 최대 1분 정도 걸릴 수 있어요.';
-    // Render 무료 서버가 잠들어 있으면 깨울 때까지 이 화면을 보여 준 뒤 이동
+  // 게임 서버 주소: 앞에서부터 차례로 시도 (주 서버가 안 되면 예비 서버로)
+  // [주소, 기다릴 최대 시간] — 예비 서버(Render 무료)는 잠들어 있으면 깨는 데 1분쯤 걸림
+  var SERVERS = [['https://yangsechan.kr/', 8000], ['https://yangsechan.onrender.com/', 70000]];
+  function probe(url, ms) {
     // (앱 안의 페이지는 출처가 달라 응답 내용은 못 읽으므로 no-cors로 "응답이 왔는지"만 확인)
-    fetch(GAME_URL + 'healthz', { cache: 'no-store', mode: 'no-cors' })
-      .then(function () { location.replace(GAME_URL); })
+    return Promise.race([
+      fetch(url + 'healthz', { cache: 'no-store', mode: 'no-cors' }),
+      new Promise(function (_, reject) { setTimeout(reject, ms); }),
+    ]);
+  }
+  function tryServer(i) {
+    probe(SERVERS[i][0], SERVERS[i][1])
+      .then(function () { location.replace(SERVERS[i][0]); })
       .catch(function () {
+        if (i + 1 < SERVERS.length) {
+          document.getElementById('msg').innerHTML = '예비 서버에 연결하는 중…<br>최대 1분 정도 걸릴 수 있어요.';
+          return tryServer(i + 1);
+        }
         document.getElementById('msg').innerHTML = '서버에 연결하지 못했어요.<br>인터넷 연결을 확인해 주세요.';
         document.getElementById('retry').style.display = 'inline-block';
       });
+  }
+  function go() {
+    document.getElementById('retry').style.display = 'none';
+    document.getElementById('msg').innerHTML = '서버에 연결하는 중…';
+    tryServer(0);
   }
   go();
 </script>

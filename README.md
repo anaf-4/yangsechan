@@ -3,7 +3,7 @@
 모두가 아는 내 제시어, **나만 모른다!** 2–8인 실시간 온라인 추리 파티 게임입니다.
 예/아니오 질문으로 내 이마의 제시어를 좁혀 가고, 먼저 맞힐수록 높은 등수를 받습니다.
 
-- **바로 하기 (웹)**: https://yangsechan.onrender.com
+- **바로 하기 (웹)**: https://yangsechan.kr (예비: https://yangsechan.onrender.com)
 - **앱 다운로드 (안드로이드 APK · 윈도우 EXE)**: [Releases](https://github.com/anaf-4/yangsechan/releases/latest)
 
 ## 주요 기능

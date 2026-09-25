@@ -2,7 +2,7 @@
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 
-const GAME_HOST = 'yangsechan.onrender.com';
+const GAME_HOSTS = ['yangsechan.kr', 'yangsechan.onrender.com']; // 주 서버, 예비 서버
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -18,7 +18,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'www', 'index.html'));
 
   // 게임 사이트 밖의 링크는 기본 브라우저로 연다.
-  const external = url => { try { return new URL(url).host !== GAME_HOST && !url.startsWith('file:'); } catch { return true; } };
+  const external = url => { try { return !GAME_HOSTS.includes(new URL(url).host) && !url.startsWith('file:'); } catch { return true; } };
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (external(url)) { e.preventDefault(); shell.openExternal(url); } });
   // 사이트가 제목을 바꿔도 창 제목은 유지
