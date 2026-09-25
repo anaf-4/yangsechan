@@ -4,7 +4,7 @@
 예/아니오 질문으로 내 이마의 제시어를 좁혀 가고, 먼저 맞힐수록 높은 등수를 받습니다.
 
 - **바로 하기 (웹)**: https://yangsechan.kr (예비: https://yangsechan.onrender.com)
-- **앱 다운로드 (안드로이드 APK · 윈도우 EXE)**: [Releases](https://github.com/anaf-4/yangsechan/releases/latest)
+- **앱 다운로드 (안드로이드 APK · 윈도우 EXE)**: https://yangsechan.kr/download
 
 ## 주요 기능
 
