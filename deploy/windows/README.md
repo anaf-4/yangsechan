@@ -22,7 +22,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 irm https://raw.githubusercontent.com/anaf-4/yangsechan/main/deploy/windows/install.ps1 -OutFile $env:TEMP\ysc-install.ps1; & $env:TEMP\ysc-install.ps1
 ```
 
-Node.js·Git·NSSM을 설치하고, `C:\yangsechan`에 게임을 받아 **"양세찬 게임 서버"** 윈도우 서비스로 등록합니다.
+Node.js·Git을 확인(없으면 설치)하고, `C:\yangsechan`에 게임을 받아 **"양세찬 게임 서버"** 윈도우 서비스로 등록합니다.
 마지막에 `서버 정상 동작: http://localhost:3000` 이 초록색으로 나오면 성공입니다. (서버컴 브라우저로 열어 봐도 됩니다)
 
 - 컴퓨터를 켜면 자동으로 시작되고, 오류로 꺼져도 3초 뒤 자동으로 다시 켜집니다.
@@ -64,8 +64,9 @@ GitHub에서 최신 코드를 받아 서버를 다시 켭니다. **진행 중인
 
 - **절전 끄기**: 설정 → 시스템 → 전원 → 화면·절전을 **"안 함"**으로 (절전되면 게임이 끊깁니다)
 - **윈도우 업데이트 재시작**: 설정 → Windows 업데이트 → 고급 옵션 → **사용 시간**을 게임이 많은 시간대로 지정
-- 서비스 상태 보기/재시작: `services.msc` → "양세찬 게임 서버", 또는 `nssm restart Yangsechan`
-- 서버 끄기: `nssm stop Yangsechan` · 다시 켜기: `nssm start Yangsechan`
+- 서비스 상태 보기/재시작: `services.msc` → "양세찬 게임 서버", 또는 관리자 PowerShell에서 `Restart-Service Yangsechan`
+- 서버 끄기: `Stop-Service Yangsechan` · 다시 켜기: `Start-Service Yangsechan`
+- 서비스 실행기(WinSW)와 설정 파일은 `C:\yangsechan-service\`에 있습니다
 
 ## 예비 서버 (Render)
 

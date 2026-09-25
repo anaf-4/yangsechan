@@ -15,7 +15,7 @@ Push-Location $Dir
 npm ci --omit=dev
 Pop-Location
 
-nssm restart $Service | Out-Null
+Restart-Service $Service
 Start-Sleep -Seconds 3
 $r = Invoke-WebRequest 'http://localhost:3000/healthz' -UseBasicParsing -TimeoutSec 5
 Write-Host "업데이트 완료: $($before.Substring(0,7)) → $($after.Substring(0,7))  (healthz → $($r.Content))" -ForegroundColor Green
