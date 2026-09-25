@@ -21,7 +21,8 @@ const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((req, res) => {
-  if (req.url === '/healthz') return res.end('ok');
+  // 앱이 "진짜 우리 서버가 살아 있는지" 읽을 수 있게 다른 출처에도 허용 (Cloudflare 오류 페이지와 구분)
+  if (req.url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' }); return res.end('ok'); }
   if (req.url === '/privacy') {
     return fs.readFile(path.join(__dirname, 'public', 'privacy.html'), (err, buf) => {
       res.writeHead(err ? 404 : 200, { 'Content-Type': 'text/html; charset=utf-8' });

@@ -24,9 +24,11 @@
   // [주소, 기다릴 최대 시간] — 예비 서버(Render 무료)는 잠들어 있으면 깨는 데 1분쯤 걸림
   var SERVERS = [['https://yangsechan.kr/', 8000], ['https://yangsechan.onrender.com/', 70000]];
   function probe(url, ms) {
-    // (앱 안의 페이지는 출처가 달라 응답 내용은 못 읽으므로 no-cors로 "응답이 왔는지"만 확인)
+    // 응답 내용이 정확히 "ok"인지 확인 (서버가 꺼져 있을 때 Cloudflare가 보내는 오류 페이지는 통과 못 함)
     return Promise.race([
-      fetch(url + 'healthz', { cache: 'no-store', mode: 'no-cors' }),
+      fetch(url + 'healthz', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+        .then(function (t) { if (t.trim() !== 'ok') throw 0; }),
       new Promise(function (_, reject) { setTimeout(reject, ms); }),
     ]);
   }
