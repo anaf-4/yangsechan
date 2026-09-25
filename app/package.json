@@ -25,7 +25,8 @@
         "portable",
         "nsis",
         "zip"
-      ]
+      ],
+      "artifactName": "yangsechan-${version}-stove.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -36,10 +37,7 @@
     "portable": {
       "artifactName": "yangsechan-${version}-portable.${ext}"
     },
-    "executableName": "Yangsechan",
-    "zip": {
-      "artifactName": "yangsechan-${version}-stove.${ext}"
-    }
+    "executableName": "Yangsechan"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
