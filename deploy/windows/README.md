@@ -50,15 +50,59 @@ Node.js·Git을 확인(없으면 설치)하고, `C:\yangsechan`에 게임을 받
 
 ---
 
-## 서버 업데이트 (코드가 바뀌었을 때)
+# 서버컴 혼자서 다 하기 (GitHub 없이)
 
-서버컴 관리자 PowerShell에서:
+| 할 일 | 어디서 |
+|---|---|
+| 코드 보관 | **https://git.yangsechan.kr** (서버컴의 Gitea, 로그인한 사람만 볼 수 있음) |
+| 자동 테스트 | 서버컴이 새 버전을 받으면 직접 `npm test` |
+| 서버 업데이트 | 테스트 통과 + **접속자 0명**일 때 자동 |
+| 앱 빌드 | 새 버전 태그(`v1.x.x`)가 올라오면 서버컴이 APK·EXE를 직접 빌드 |
+| 앱 다운로드 | **https://yangsechan.kr/download** |
+
+## 5단계. Cloudflare에 git.yangsechan.kr 추가
+
+Zero Trust → Networks → Tunnels → `yangsechan` → **Public Hostname 추가**
+- Subdomain: `git` · Domain: `yangsechan.kr` · Service: `HTTP` · URL `localhost:3001`
+
+## 6단계. 최신 스크립트 받기 + Gitea 설치
+
+서버컴 관리자 PowerShell에서 (한 줄씩):
 
 ```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
 C:\yangsechan\deploy\windows\update.ps1
+C:\yangsechan\deploy\windows\install-gitea.ps1
+C:\yangsechan\deploy\windows\install.ps1
 ```
 
-GitHub에서 최신 코드를 받아 서버를 다시 켭니다. **진행 중인 방은 사라지니** 게임하는 사람이 없을 때 실행하세요. (접속자에게는 "서버 업데이트 중" 안내가 뜹니다)
+- `update.ps1`: GitHub에서 마지막으로 새 스크립트를 받아 옵니다. (이후로는 GitHub을 쓰지 않습니다)
+- `install-gitea.ps1`: Gitea를 설치하고 **아이디·이메일·비밀번호를 물어봅니다** (직접 정해 입력). 서버컴의 코드를 Gitea로 옮기고, 게임 서버가 앞으로 Gitea에서 업데이트를 받도록 바꿉니다.
+- `install.ps1`: 자동 업데이트(5분마다)를 새 설정으로 등록합니다.
+- 브라우저로 https://git.yangsechan.kr 에 들어가 방금 만든 아이디로 로그인되면 성공입니다.
+
+## 7단계. 앱 빌드 준비 (한 번만)
+
+1. 개발 PC의 `E:\양세찬게임-서명키` 폴더에 있는 두 파일을 **USB 등으로** 서버컴의 `C:\yangsechan-signing\` 폴더에 복사
+   (`yangsechan-release.jks`, `서명키 정보.txt` — 인터넷·메신저로 보내지 마세요)
+2. 서버컴 관리자 PowerShell에서:
+   ```powershell
+   C:\yangsechan\deploy\windows\setup-build.ps1
+   ```
+   Java와 안드로이드 SDK를 설치합니다 (1~2GB, 시간이 좀 걸려요).
+3. 준비가 끝나면 5분 안에 자동 업데이트가 최신 태그(v1.3.0)의 앱을 빌드해 **https://yangsechan.kr/download** 에 올립니다.
+   첫 빌드는 도구를 내려받느라 20~30분 걸릴 수 있습니다.
+
+---
+
+## 평소 운영
+
+- **자동으로 다 됩니다.** 기록은 `C:\yangsechan\logs\auto-update.log` 에서 볼 수 있어요.
+- 새 코드가 올라오면: 테스트 → 통과하고 접속자가 없을 때 업데이트 (게임 중에는 기다림)
+- 새 버전 태그가 올라오면: 앱 빌드 → 다운로드 페이지에 공개 (빌드 기록: `logs\build-v1.x.x.log`)
+- 자동 업데이트 끄기/켜기: `Disable-ScheduledTask 'Yangsechan AutoUpdate'` / `Enable-ScheduledTask 'Yangsechan AutoUpdate'`
+- 지금 바로 업데이트(수동): `C:\yangsechan\deploy\windows\update.ps1` (진행 중인 방은 사라짐)
+- 앱 다시 빌드(수동): `C:\yangsechan\deploy\windows\build-apps.ps1 -Tag v1.3.0`
 
 ## 서버컴 관리 팁
 

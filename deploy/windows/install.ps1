@@ -94,4 +94,15 @@ try {
   Write-Host "  서버 응답이 없습니다. $Dir\logs 폴더의 로그를 확인해 주세요." -ForegroundColor Red
 }
 
-Say '다음 단계: Cloudflare Tunnel 연결 (deploy\windows\README.md 3단계)'
+Say '자동 업데이트 등록 (5분마다: 새 버전 테스트 → 통과 + 접속자 0명이면 업데이트, 새 태그면 앱 빌드)'
+# 작업 스케줄러는 SYSTEM 계정으로 돌기 때문에, 관리자 계정이 받은 폴더를 git이 거부하지 않게 허용
+$safe = $Dir.Replace('\', '/')
+if (-not ((git config --system --get-all safe.directory) -contains $safe)) { git config --system --add safe.directory $safe }
+$action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Dir\deploy\windows\auto-update.ps1`""
+$trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 90)
+Register-ScheduledTask -TaskName 'Yangsechan AutoUpdate' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "  등록됨: 작업 스케줄러 'Yangsechan AutoUpdate'  (기록: $Dir\logs\auto-update.log)"
+
+Say '완료! (처음 설치라면 다음 단계: Cloudflare Tunnel 연결 — deploy\windows\README.md 3단계)'

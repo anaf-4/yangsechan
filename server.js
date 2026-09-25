@@ -20,9 +20,76 @@ const REACTIONS = ['😂', '🤔', '👍', '😮', '🔥', '👏'];
 const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
+
+// ---- 앱 다운로드 (서버컴이 빌드한 파일: <DOWNLOADS_DIR>/v1.2.3/*.apk, *.exe) ----
+const DOWNLOADS = process.env.DOWNLOADS_DIR || path.join(__dirname, '..', 'yangsechan-downloads');
+const verNum = t => t.slice(1).split('.').map(Number);
+function releases() {
+  try {
+    return fs.readdirSync(DOWNLOADS).filter(d => /^v\d+\.\d+\.\d+$/.test(d))
+      .sort((a, b) => { const x = verNum(a), y = verNum(b); return y[0] - x[0] || y[1] - x[1] || y[2] - x[2]; })
+      .map(tag => {
+        const dir = path.join(DOWNLOADS, tag);
+        const files = fs.readdirSync(dir).filter(f => /\.(apk|exe)$/.test(f));
+        return { tag, files, date: fs.statSync(dir).mtime };
+      }).filter(r => r.files.length);
+  } catch { return []; }
+}
+const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function downloadPage() {
+  const list = releases();
+  const label = f => f.endsWith('.apk') ? ['안드로이드', 'APK · 휴대폰에 설치'] : f.includes('setup') ? ['윈도우 설치', '시작 메뉴·바탕화면 바로가기 생성'] : ['윈도우 (설치 없이)', '받아서 바로 실행'];
+  const size = (tag, f) => (fs.statSync(path.join(DOWNLOADS, tag, f)).size / 1048576).toFixed(0) + 'MB';
+  const btns = r => r.files.slice().sort((a, b) => a.endsWith('.apk') ? -1 : b.endsWith('.apk') ? 1 : a.includes('setup') ? -1 : 1)
+    .map(f => `<a class="dl" href="/download/${r.tag}/${encodeURIComponent(f)}"><b>${label(f)[0]}</b><span>${label(f)[1]} · ${size(r.tag, f)}</span></a>`).join('');
+  const latest = list[0];
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>앱 다운로드 — 양세찬 게임</title><link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<style>body{margin:0;background:#101322;color:#f3eee4;font-family:system-ui,"Malgun Gothic",sans-serif;line-height:1.6}main{max-width:760px;margin:0 auto;padding:40px 20px 80px}
+h1{margin:0 0 4px;font-size:30px}.sub{color:#9aa1bf}.ver{color:#ffc23d;font-weight:800}.grid{display:grid;gap:12px;margin:22px 0}
+.dl{display:flex;flex-direction:column;padding:18px 22px;border-radius:16px;background:#ffc23d;color:#1b1406;text-decoration:none;box-shadow:0 5px 0 #b3811a}
+.dl b{font-size:20px}.dl span{font-size:14px;opacity:.8}.dl+.dl{background:#1a1f35;color:#f3eee4;border:2px solid #2b3150;box-shadow:none}
+.box{background:#1a1f35;border:1px solid #2b3150;border-radius:14px;padding:14px 18px;margin-top:14px;font-size:14px;color:#c9c4d8}
+details{margin-top:26px}summary{cursor:pointer;color:#9aa1bf}a{color:#ffc23d}.old a{display:inline-block;margin:4px 10px 4px 0;font-size:14px}</style></head>
+<body><main><h1>양세찬 게임 앱</h1>
+${latest ? `<p class="sub">최신 버전 <span class="ver">${latest.tag}</span> · ${latest.date.toISOString().slice(0, 10)}</p><div class="grid">${btns(latest)}</div>
+<div class="box">안드로이드: "출처를 알 수 없는 앱 설치"를 허용해야 설치돼요. 이전 버전이 있으면 그대로 덮어 설치하면 됩니다.<br>윈도우: "Windows의 PC 보호" 창이 뜨면 <b>추가 정보 → 실행</b>을 누르세요.</div>
+${list.length > 1 ? `<details><summary>이전 버전</summary><div class="old">${list.slice(1).map(r => `<div><b>${r.tag}</b> ${r.files.map(f => `<a href="/download/${r.tag}/${encodeURIComponent(f)}">${escHtml(f)}</a>`).join('')}</div>`).join('')}</div></details>` : ''}`
+    : '<p class="sub">아직 준비된 앱 파일이 없어요. 웹에서 바로 즐겨 주세요!</p>'}
+<p style="margin-top:30px"><a href="/">← 웹에서 바로 하기</a></p></main></body></html>`;
+}
 const server = http.createServer((req, res) => {
   // 앱이 "진짜 우리 서버가 살아 있는지" 읽을 수 있게 다른 출처에도 허용 (Cloudflare 오류 페이지와 구분)
   if (req.url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' }); return res.end('ok'); }
+  // 서버컴 자동 업데이트용: 지금 접속자·게임 수 (서버컴 안에서만. Cloudflare를 거친 요청은 cf-connecting-ip 헤더가 붙어 차단)
+  if (req.url === '/status') {
+    const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
+      && !req.headers['cf-connecting-ip'] && !req.headers['x-forwarded-for'];
+    if (!local) { res.writeHead(404); return res.end(); }
+    const all = [...rooms.values()];
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      rooms: all.length,
+      online: all.reduce((n, r) => n + r.players.filter(p => p.sid).length, 0),
+      playing: all.filter(r => r.state === 'playing').length,
+    }));
+  }
+  if (req.url === '/download' || req.url === '/download/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+    return res.end(downloadPage());
+  }
+  const dl = req.url.match(/^\/download\/(v\d+\.\d+\.\d+)\/([\w.-]+\.(?:apk|exe|zip))$/);
+  if (dl) {
+    const file = path.join(DOWNLOADS, dl[1], dl[2]);
+    return fs.stat(file, (err, st) => {
+      if (err || !st.isFile()) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, {
+        'Content-Type': dl[2].endsWith('.apk') ? 'application/vnd.android.package-archive' : 'application/octet-stream',
+        'Content-Length': st.size, 'Content-Disposition': `attachment; filename="${dl[2]}"`,
+      });
+      fs.createReadStream(file).pipe(res);
+    });
+  }
   if (req.url === '/privacy') {
     return fs.readFile(path.join(__dirname, 'public', 'privacy.html'), (err, buf) => {
       res.writeHead(err ? 404 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
