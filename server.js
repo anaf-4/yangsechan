@@ -42,6 +42,30 @@ const clean = (s, max) => String(s ?? '').trim().slice(0, max);
 // 정답 비교용: 띄어쓰기·문장부호·대소문자 무시
 const norm = s => String(s ?? '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 const isCorrect = (guess, word) => [word, ...(ALIASES[word] || [])].some(w => norm(w) === norm(guess));
+
+// ---- 채팅·질문 가리기 ----
+// 비교용 글자만 남기기 (욕설은 숫자까지 빼서 "시1발" 같은 우회도 잡음)
+const flat = (s, digits = true) => [...String(s).normalize('NFC').toLowerCase()].filter(c => (digits ? /[\p{L}\p{N}]/u : /\p{L}/u).test(c));
+// text 안에서 needles가 나오는 부분을 원문 위치 기준으로 *로 가림 (사이에 낀 띄어쓰기·기호 포함)
+function maskText(text, needles, digits = true) {
+  const chars = [...text], letters = [], pos = [];
+  chars.forEach((c, i) => { if (flat(c, digits).length) { letters.push(flat(c, digits)[0]); pos.push(i); } });
+  const hide = new Set();
+  for (const nd of needles) {
+    for (let at = 0; at + nd.length <= letters.length; at++) {
+      if (nd.every((c, k) => letters[at + k] === c)) for (let i = pos[at]; i <= pos[at + nd.length - 1]; i++) hide.add(i);
+    }
+  }
+  return hide.size ? chars.map((c, i) => hide.has(i) ? '*' : c).join('') : text;
+}
+const BAD_WORDS = ['시발', '씨발', '씨바', '씨빨', '시빨', 'ㅅㅂ', 'ㅆㅂ', '병신', '븅신', 'ㅂㅅ', '좆', '존나', '졸라', '개새끼', '개색', '새끼', 'ㅅㄲ',
+  '미친놈', '미친년', '지랄', 'ㅈㄹ', '엠창', '느금', '니애미', '니미', '애미', '애비', '닥쳐', '꺼져', 'fuck', 'shit', 'bitch', 'sibal'].map(w => flat(w, false));
+const hasBad = s => maskText(s, BAD_WORDS, false) !== s;
+// 아직 못 맞힌 다른 사람의 제시어·별칭 (한 글자짜리는 너무 자주 걸려서 제외)
+const spoilers = (room, me) => room.state !== 'playing' ? [] : room.players
+  .filter(p => !p.rank && p !== me && p.word)
+  .flatMap(p => [p.word, ...(ALIASES[p.word] || [])]).map(w => flat(w)).filter(w => w.length >= 2);
+const cleanText = (room, me, s) => maskText(maskText(s, BAD_WORDS, false), spoilers(room, me));
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
@@ -80,7 +104,7 @@ function newRoom(isPublic) {
     isPublic: !!isPublic,
     code: makeCode(), hostId: null, players: [], state: 'lobby',
     category: '전체', customMode: false, custom: {}, turnSec: 45, voteSec: 20, maxPlayers: MAX_PLAYERS, wordList: [],
-    spectatorVote: true, round: 0, usedWords: new Set(),
+    spectatorVote: true, round: 0, usedWords: new Set(), banned: new Set(),
     turnIdx: -1, turnEnd: 0, q: null, noAsk: false, log: [], nextRank: 1, timer: null, idleTimer: null,
   };
   rooms.set(room.code, room);
@@ -265,6 +289,7 @@ function toLobby(room) {
 function removePlayer(room, p) {
   clearTimeout(p.removeTimer);
   room.players = room.players.filter(x => x !== p);
+  addLog(room, `🚪 ${p.name}님이 나갔습니다.`, 'sys');
   room.custom = {}; // 작성 대상이 바뀌므로 초기화
   if (room.hostId === p.id) room.hostId = room.players[0]?.id;
   if (!room.players.length) return deleteRoom(room);
@@ -290,8 +315,11 @@ function join(socket, room, { name, token }) {
     if (room.state !== 'lobby') return '이미 게임이 진행 중입니다.';
     if (room.players.length >= room.maxPlayers) return `방이 가득 찼습니다 (최대 ${room.maxPlayers}명).`;
     if (room.players.some(x => x.name === name)) return '이미 사용 중인 닉네임입니다.';
+    if (hasBad(name)) return '사용할 수 없는 닉네임입니다.';
+    if (room.banned.has(token) || room.banned.has('name:' + norm(name))) return '이 방에서 강퇴되어 다시 들어갈 수 없습니다.';
     p = { id: rid(), token, name, sid: null, ready: false, rank: 0, score: 0 };
     room.players.push(p);
+    addLog(room, `👋 ${name}님이 들어왔습니다.`, 'sys');
     room.custom = {};
     if (!room.hostId) room.hostId = p.id;
   }
@@ -312,8 +340,19 @@ io.on('connection', socket => {
       .map(r => ({ code: r.code, host: host(r).name, count: r.players.length, max: r.maxPlayers, category: r.customMode ? '서로 지정' : r.category })));
   });
 
+  // 이미 다른 방에 있으면 그 방에서 먼저 나감 (빈 방이 남지 않게)
+  const leaveCurrent = (keepCode) => {
+    const c = ctx();
+    if (!c || c.room.code === keepCode) return;
+    socket.data = {};
+    if (c.room.state === 'playing') { forfeit(c.room, c.me, `🚪 ${c.me.name}님이 나갔습니다.`); if (rooms.has(c.room.code)) sync(c.room); }
+    else removePlayer(c.room, c.me);
+  };
+
   socket.on('create', (d = {}, cb = () => {}) => {
     if (!clean(d.name, 12)) return cb({ error: '닉네임을 입력하세요.' });
+    if (hasBad(d.name)) return cb({ error: '사용할 수 없는 닉네임입니다.' });
+    leaveCurrent();
     const room = newRoom(d.isPublic);
     const err = join(socket, room, d);
     if (err) { deleteRoom(room); return cb({ error: err }); }
@@ -323,6 +362,7 @@ io.on('connection', socket => {
   socket.on('join', (d = {}, cb = () => {}) => {
     const room = rooms.get(clean(d.code, 6).toUpperCase());
     if (!room) return cb({ error: '방을 찾을 수 없습니다.' });
+    leaveCurrent(room.code);
     const err = join(socket, room, d);
     cb(err ? { error: err } : { code: room.code });
   });
@@ -345,7 +385,16 @@ io.on('connection', socket => {
     else if (rooms.has(c.room.code)) sync(c.room);
   });
 
-  on('ready', (room, me) => { if (room.state === 'lobby') me.ready = !me.ready; });
+  on('ready', (room, me) => { if (room.state === 'lobby' || room.state === 'result') me.ready = !me.ready; });
+
+  on('makeHost', (room, me, d) => {
+    if (!isHost(room, me) || room.state === 'playing') return '방장만 넘길 수 있습니다.';
+    const t = room.players.find(p => p.id === d.id);
+    if (!t || t === me) return;
+    if (!t.sid) return '접속 중인 사람에게만 넘길 수 있습니다.';
+    room.hostId = t.id;
+    addLog(room, `👑 ${t.name}님이 방장이 되었습니다.`, 'sys');
+  });
 
   on('settings', (room, me, d) => {
     if (!isHost(room, me) || room.state !== 'lobby') return '방장만 변경할 수 있습니다.';
@@ -382,6 +431,8 @@ io.on('connection', socket => {
     const t = room.players.find(p => p.id === d.id);
     if (!t || t === me) return;
     if (t.sid) io.to(t.sid).emit('kicked', '방장에 의해 퇴장되었습니다.');
+    if (t.token) room.banned.add(t.token);
+    room.banned.add('name:' + norm(t.name));
     if (room.state === 'playing') return forfeit(room, t, `🚪 ${t.name}님이 강퇴되었습니다.`, true);
     removePlayer(room, t);
   });
@@ -397,7 +448,7 @@ io.on('connection', socket => {
   on('ask', (room, me, d) => {
     if (room.state !== 'playing' || room.players[room.turnIdx] !== me || room.q) return '지금은 질문할 수 없습니다.';
     if (room.noAsk) return '패널티로 이번 턴에는 질문할 수 없습니다.';
-    const text = clean(d.text, 100);
+    const text = cleanText(room, me, clean(d.text, 100));
     if (!text) return '질문을 입력하세요.';
     room.q = { text, votes: {} };
     me.qCount = (me.qCount || 0) + 1;
@@ -422,8 +473,8 @@ io.on('connection', socket => {
   });
 
   on('chat', (room, me, d) => {
-    if (room.state !== 'playing') return;
-    const text = clean(d.text, 60);
+    if (room.state === 'result') return;
+    const text = cleanText(room, me, clean(d.text, 60));
     if (!text) return;
     if (Date.now() - (me.lastSaid || 0) < CHAT_GAP_MS) return '너무 빨라요. 잠시 후 다시 보내 주세요.';
     me.lastSaid = Date.now();
@@ -449,6 +500,8 @@ io.on('connection', socket => {
 
   on('again', (room, me) => {
     if (!isHost(room, me) || room.state !== 'result') return;
+    const waiting = room.players.filter(p => p !== me && p.sid && !p.ready).length;
+    if (waiting) return `${waiting}명이 아직 준비하지 않았어요.`;
     toLobby(room);
     if (room.customMode) return; // 커스텀 모드는 대기실에서 제시어를 다시 입력
     if (room.players.length < 2) return;
@@ -482,5 +535,11 @@ io.on('connection', socket => {
   });
 });
 
+// Render가 새 버전을 배포하며 이 서버를 끌 때: 접속자에게 알리고 종료 (방은 메모리에만 있어 사라짐)
+process.on('SIGTERM', () => {
+  for (const room of rooms.values()) emitAll(room, 'serverRestart');
+  setTimeout(() => process.exit(0), 1000);
+});
+
 server.listen(PORT, () => console.log(`양세찬 게임 서버: http://localhost:${server.address().port}`));
-module.exports = { server, isCorrect, hintText, norm };
+module.exports = { server, isCorrect, hintText, norm, maskText, flat, hasBad };

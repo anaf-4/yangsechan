@@ -4,7 +4,15 @@ process.env.TURN_GRACE_MS = 300;
 process.env.COUNTDOWN_MS = 200;
 const assert = require('assert');
 const { io } = require('socket.io-client');
-const { server, isCorrect, hintText } = require('./server');
+const { server, isCorrect, hintText, maskText, flat, hasBad } = require('./server');
+
+// 가리기: 욕설(숫자·기호 끼워도), 정답 스포
+assert.ok(hasBad('시1발'));
+assert.ok(hasBad('ㅅ ㅂ'));
+assert.ok(!hasBad('시바견 귀여워'));
+assert.equal(maskText('너 고 양 이 맞지?', [flat('고양이')]), '너 ***** 맞지?');
+assert.equal(maskText('은하철도999 봤어', [flat('은하철도 999')]), '******* 봤어');
+assert.equal(maskText('아무 상관없는 말', [flat('고양이')]), '아무 상관없는 말');
 
 // 정답 판정: 띄어쓰기·문장부호·대소문자 무시 + 별칭
 assert.ok(isCorrect('아이언 맨!', '아이언맨'));
@@ -112,9 +120,22 @@ server.on('listening', async () => {
   assert.deepEqual(r.players.map(p => p.word), words.map((w, i) => i === 1 ? realB : w));
 
   // 끊긴 플레이어 턴은 건너뜀: 새 게임(A부터) → A 질문 → B·C 투표 → B 차례에 B 끊김 → C 차례
+  // 새 게임은 모두 준비해야 시작
+  const e1 = wait(a, 'err'); a.emit('again');
+  assert.match(await e1, /준비/);
+  await new Promise(r => { a.once('state', r); b.emit('ready'); });
+  await new Promise(r => { a.once('state', r); c.emit('ready'); });
   const g2 = nextState(c, s => s.state === 'playing' && s.turnId);
   a.emit('again');
   await g2;
+
+  // 채팅 스포 방지: C가 B의 제시어를 치면 가려지고, 자기 것(모르는 것)은 그대로
+  const g2s = await new Promise(r => { c.once('state', r); c.emit('chat', { text: 'x' }); });
+  const bWord = g2s.players[1].word;
+  const chatted = nextState(a, s => s.log.at(-1)?.text.startsWith('C: 힌트'));
+  setTimeout(() => c.emit('chat', { text: `힌트 ${bWord}` }), 900);
+  const cs = await chatted;
+  if (flat(bWord).length >= 2) assert.ok(!cs.log.at(-1).text.includes(bWord), '남의 제시어는 가려짐');
   a.emit('ask', { text: 'q' });
   await nextState(c, s => !!s.q);
   const bT = nextState(c, s => s.turnId === s.players[1].id);
@@ -189,6 +210,29 @@ server.on('listening', async () => {
   assert.equal(hs2.myHint, hintText(xWord, 1)); // 1단계는 위치와 무관
   assert.equal(hs2.hintsLeft, 0);
   [x, y].forEach(s => s.close());
+
+  // 대기실: 방장 넘기기, 강퇴 후 재입장 차단, 다른 방 만들면 이전 방에서 자동 퇴장
+  const [h, g, k] = [mk(), mk(), mk()];
+  await Promise.all([h, g, k].map(s => wait(s, 'connect')));
+  const { code: rc } = await emitCb(h, 'create', { name: 'H', token: tok('h') });
+  await emitCb(g, 'join', { code: rc, name: 'G', token: tok('g') });
+  await emitCb(k, 'join', { code: rc, name: 'K', token: tok('k') });
+  const hs3 = await new Promise(r => { h.once('state', r); h.emit('ready'); });
+  const gid = hs3.players[1].id, kid = hs3.players[2].id;
+  const moved = nextState(g, s => s.hostId === gid);
+  h.emit('makeHost', { id: gid });
+  await moved;
+  const kk = wait(k, 'kicked');
+  g.emit('kick', { id: kid });
+  await kk;
+  assert.match((await emitCb(k, 'join', { code: rc, name: 'K', token: tok('k') })).error, /강퇴/);
+  assert.match((await emitCb(k, 'join', { code: rc, name: 'K', token: tok('z') })).error, /강퇴/, '같은 이름으로도 재입장 불가');
+  assert.match((await emitCb(k, 'join', { code: rc, name: '병1신', token: tok('w') })).error, /닉네임/);
+  const left = nextState(g, s => s.players.length === 1);
+  await emitCb(h, 'create', { name: 'H', token: tok('h') });
+  const gs = await left;
+  assert.ok(gs.log.some(l => l.text.includes('H님이 나갔습니다')), '새 방을 만들면 이전 방에서 나감');
+  [h, g, k].forEach(s => s.close());
 
   console.log('✅ all tests passed');
   [a, c2].forEach(s => s.close());
