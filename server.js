@@ -120,6 +120,7 @@ function view(room, me) {
     customTarget: room.customMode && n > 1 ? room.players[(i + 1) % n].name : null,
     myCustom: room.custom[me.id] || '',
     myHint: hiding && me.hintsUsed ? hintText(me.word, me.hintsUsed, me.hintPos) : '',
+    myQuestions: room.state === 'lobby' ? [] : (me.qHistory || []),
     hintsLeft: hiding ? hintsLeft(me) : 0,
     turnId: room.state === 'playing' && !room.paused && tp ? tp.id : null,
     remaining: Math.max(0, room.turnEnd - Date.now()),
@@ -152,7 +153,7 @@ function startGame(room) {
     words.forEach(w => room.usedWords.add(w));
   }
   room.players.forEach((p, i) => Object.assign(p, {
-    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, hintsUsed: 0, hintPos: hintPos(words[i]), lastPoints: null,
+    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, qHistory: [], hintsUsed: 0, hintPos: hintPos(words[i]), lastPoints: null,
   }));
   Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false, roundSize: n });
   addLog(room, `🎮 ${room.round + 1}번째 게임 시작! 내 제시어를 맞혀보세요.`, 'sys');
@@ -217,6 +218,9 @@ function finishQuestion(room) {
   const c = { yes: 0, no: 0, maybe: 0 };
   Object.values(room.q.votes).forEach(v => c[v]++);
   addLog(room, `📊 결과 → 예 ${c.yes} / 아니오 ${c.no} / 모호함 ${c.maybe}`, 'result');
+  // 질문한 사람의 "내 질문 기록"에 결과와 함께 남김
+  const asker = room.players[room.turnIdx];
+  if (asker) (asker.qHistory ||= []).push({ text: room.q.text, ...c });
   nextTurn(room);
 }
 

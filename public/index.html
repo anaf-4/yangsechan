@@ -211,7 +211,7 @@
   .ask-hint.warn { color:var(--coral); font-weight:800; }
   .bubble-row { display:flex; align-items:flex-start; gap:14px; }
   .bubble-row .avatar { width:44px; height:44px; font-size:22px; }
-  .bubble { background:var(--ivory); color:var(--ink); border-radius:4px 18px 18px 18px; padding:14px 22px; font-weight:800; font-size:clamp(18px, 2.2vw, 24px); line-height:1.4; word-break:keep-all; }
+  .bubble { min-width:0; background:var(--ivory); color:var(--ink); border-radius:4px 18px 18px 18px; padding:14px 22px; font-weight:800; font-size:clamp(18px, 2.2vw, 24px); line-height:1.4; word-break:keep-all; overflow-wrap:anywhere; }
   .votes { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; }
   .vote { min-height:70px; border:4px solid transparent; border-radius:16px; font-weight:800; font-size:clamp(18px, 2vw, 22px); transition:transform .08s; }
   .vote.yes { background:var(--sky); color:#0e1a2b; box-shadow:0 6px 0 var(--sky-dk); }
@@ -229,6 +229,8 @@
   .logpanel .btn { min-height:44px; padding:0 12px; font-size:13px; }
   #log { display:flex; flex-direction:column; gap:6px; overflow-y:auto; min-height:120px; }
   #log div { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:12px; font-size:14px; line-height:1.45; font-weight:600; color:var(--soft); }
+  /* 긴 이름·채팅·띄어쓰기 없는 문자열도 칸 안에서 줄바꿈 */
+  #log div > span { min-width:0; overflow-wrap:anywhere; word-break:break-word; }
   #log div::before { content:''; width:8px; height:8px; margin-top:6px; flex-shrink:0; border-radius:50%; background:var(--faint); }
   #log .turn { color:var(--text); font-weight:800; } #log .turn::before { background:var(--sky); }
   #log .question { background:var(--bg); color:var(--text); } #log .question::before { background:var(--ivory); }
@@ -304,6 +306,30 @@
   #sfxBtn { position:fixed; left:calc(14px + env(safe-area-inset-left, 0px)); bottom:calc(14px + env(safe-area-inset-bottom, 0px)); z-index:18; width:46px; height:46px; border-radius:50%; border:2px solid var(--line-2); background:var(--panel); color:var(--soft); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px rgba(0,0,0,.4); }
   #sfxBtn.off { color:var(--faint); }
 
+  /* 내 질문 기록 */
+  .myq { display:flex; flex-direction:column; gap:10px; padding:18px 20px; }
+  .myq ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; max-height:240px; overflow-y:auto; }
+  .myq li { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:12px; background:var(--bg); }
+  .myq .n { font-family:var(--arcade); font-size:13px; color:var(--muted); padding-top:2px; flex-shrink:0; }
+  .myq .t { flex:1; min-width:0; font-weight:700; line-height:1.45; overflow-wrap:anywhere; }
+  .myq .r { display:flex; gap:6px; flex-shrink:0; }
+  .chip { padding:3px 8px; border-radius:8px; font-size:12px; font-weight:800; white-space:nowrap; }
+  .chip.yes { background:rgba(111,182,255,.18); color:var(--sky); }
+  .chip.no { background:rgba(255,138,112,.18); color:var(--coral); }
+  .chip.maybe { background:rgba(154,161,191,.18); color:var(--muted); }
+  .chip.win { outline:2px solid currentColor; }
+  .chip.live { background:rgba(255,194,61,.16); color:var(--gold); }
+  .myq .empty { color:var(--muted); font-size:14px; }
+
+  /* 스크롤바: 게임 테마 (크롬·엣지·사파리는 둥근 막대, 파이어폭스는 얇은 기본형에 색만) */
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--line-2); border-radius:999px; border:3px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color:var(--gold); }
+  ::-webkit-scrollbar-thumb:active { background-color:var(--gold-dk); }
+  ::-webkit-scrollbar-corner { background:transparent; }
+  @supports not selector(::-webkit-scrollbar) { * { scrollbar-width:thin; scrollbar-color:var(--line-2) transparent; } }
+
   /* 확인 창 */
   #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
   .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
@@ -346,6 +372,7 @@
     .actionbar .btn-gold { flex:1; }
   }
   @media (max-width: 520px) {
+    .myq li { flex-wrap:wrap; } .myq .r { width:100%; padding-left:24px; }
     main { padding:16px 16px 32px; }
     .fan { height:280px; }
     .fan .card { top:70px; }
@@ -577,6 +604,7 @@
         <div id="qBox" style="display:flex;flex-direction:column;gap:16px"></div>
         <div class="waitmsg" id="waitMsg"></div>
       </div>
+      <div class="panel myq" id="myQ"></div>
     </div>
 
     <div class="panel logpanel">
@@ -943,7 +971,18 @@ function renderGame() {
   wait.textContent = me.rank ? `관전 중 — 정답을 맞혔어요!${S.spectatorVote ? ' 답변은 계속 할 수 있어요.' : ''} 마지막 1명이 남을 때까지 게임이 계속됩니다.`
     : counting ? '' : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '')
     : S.q ? '' : `${tp.name}님이 고민 중…`;
-  $('log').innerHTML = S.log.map(l => `<div class="${l.kind}">${esc(l.text.replace(/^[^\p{L}\p{N}"]+/u, ''))}</div>`).join('');
+  $('log').innerHTML = S.log.map(l => `<div class="${l.kind}"><span>${esc(l.text.replace(/^[^\p{L}\p{N}"]+/u, ''))}</span></div>`).join('');
+
+  // 내 질문 기록: 지금까지 한 질문과 결과 (가장 많은 답에 테두리)
+  const mine = S.myQuestions.map((q, i) => {
+    const top = Math.max(q.yes, q.no, q.maybe);
+    const chip = (k, n) => `<span class="chip ${k} ${n && n === top ? 'win' : ''}">${LABEL[k]} ${n}</span>`;
+    return `<li><span class="n">${i + 1}</span><span class="t">${esc(q.text)}</span><span class="r">${chip('yes', q.yes)}${chip('no', q.no)}${chip('maybe', q.maybe)}</span></li>`;
+  });
+  if (S.q && myTurn) mine.push(`<li><span class="n">${S.myQuestions.length + 1}</span><span class="t">${esc(S.q.text)}</span><span class="r"><span class="chip live">투표 중</span></span></li>`);
+  $('myQ').innerHTML = `<div class="phead"><h2 class="h2" style="font-size:20px">내 질문 기록</h2><span class="sub">${S.myQuestions.length}개</span></div>
+    ${mine.length ? `<ol>${mine.join('')}</ol>` : '<div class="empty">아직 한 질문이 없어요. 내 차례에 질문하면 여기에 결과와 함께 쌓여요.</div>'}`;
+  const ol = $('myQ').querySelector('ol'); if (ol) ol.scrollTop = ol.scrollHeight;
   $('log').scrollTop = $('log').scrollHeight;
 }
 
