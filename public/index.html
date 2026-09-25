@@ -475,6 +475,7 @@
       <div class="step"><div class="n">3</div><div><b>정답 도전</b><span>틀리면 다음 턴 질문 기회가 사라져요</span></div></div>
     </div>
     <div class="panel mystats hidden" id="myStats"></div>
+    <p class="sub" id="privacyLink" style="text-align:center;margin-top:26px"><a href="/privacy" style="color:var(--muted)">개인정보처리방침</a></p>
 
     <div id="entry" class="hidden">
       <div class="topnav">
@@ -881,7 +882,8 @@ $('nameIn').value = localStorage.getItem('ysc_name') || '';
 $('codeIn').value = new URLSearchParams(location.search).get('room') || '';
 let listTimer;
 const entry = on => {
-  for (const id of ['intro', 'steps']) $(id).classList.toggle('hidden', on);
+  for (const id of ['intro', 'steps', 'privacyLink']) $(id).classList.toggle('hidden', on);
+  if (on) $('myStats').classList.add('hidden'); else if (typeof paintStats === 'function') paintStats();
   $('entry').classList.toggle('hidden', !on);
   clearInterval(listTimer);
   if (on) { $('nameIn').focus(); loadRooms(); listTimer = setInterval(loadRooms, 5000); }

@@ -22,6 +22,12 @@ const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') return res.end('ok');
+  if (req.url === '/privacy') {
+    return fs.readFile(path.join(__dirname, 'public', 'privacy.html'), (err, buf) => {
+      res.writeHead(err ? 404 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buf);
+    });
+  }
   // 아이콘·미리보기 이미지(public/*.png)와 효과음(public/sfx/*.mp3) — 이름 규칙으로 경로 조작 차단
   const asset = req.url.match(/^\/(?:[\w-]+\.png|sfx\/[\w-]+\.mp3)$/);
   if (asset) {
