@@ -908,7 +908,7 @@ function renderGame() {
   if ($('reacts').childElementCount !== S.reactions.length)
     $('reacts').innerHTML = S.reactions.map(x => `<button data-e="${x}" aria-label="리액션 ${x}">${x}</button>`).join('');
 
-  // 힌트: 질문 N번마다 1개 (글자 수 → 초성 → 첫 글자)
+  // 힌트: 질문 N번마다 1개 (글자 수 → 한 글자 초성 → 한 글자 공개)
   const earned = Math.min(3, Math.floor(me.qCount / S.hintEvery)), used = earned - S.hintsLeft;
   $('hintBar').classList.toggle('hidden', !!me.rank || counting);
   $('hintBar').innerHTML = `
