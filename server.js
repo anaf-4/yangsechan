@@ -97,6 +97,39 @@ function hintText(word, level, pos = [0, 1]) {
     return k === pos[0] ? chosung(c) : '□';
   }).join('');
 }
+// 아깝다 판정: 정답(별칭 포함)과 글자 하나만 다르면 true (한 글자 바꿈·빠짐·더함)
+function nearMiss(guess, word) {
+  const g = [...norm(guess)];
+  return [word, ...(ALIASES[word] || [])].some(w => {
+    const t = [...norm(w)];
+    if (t.length < 2 || Math.abs(t.length - g.length) > 1) return false;
+    const d = Array.from({ length: g.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= t.length; j++) d[0][j] = j;
+    for (let i = 1; i <= g.length; i++) for (let j = 1; j <= t.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (g[i - 1] === t[j - 1] ? 0 : 1));
+    return d[g.length][t.length] === 1;
+  });
+}
+
+// 아바타: 색 번호 + 동물 아이콘(없으면 이름 첫 글자)
+const AVATAR_COLORS = 8;
+const AVATAR_ICONS = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐯', '🦁', '🐸', '🐧', '🐙', '🦄'];
+const cleanAvatar = a => ({
+  c: Number.isInteger(a?.c) && a.c >= 0 && a.c < AVATAR_COLORS ? a.c : null,
+  e: AVATAR_ICONS.includes(a?.e) ? a.e : '',
+});
+
+// 서로 지정 모드: 누가 누구의 제시어를 쓸지 무작위로 섞음 (자기 자신 제외) → 누가 썼는지 알 수 없게
+function assignTargets(room) {
+  room.custom = {};
+  room.customTargets = {};
+  const ids = room.players.map(p => p.id);
+  if (!room.customMode || ids.length < 2) return;
+  let perm;
+  do perm = shuffle([...ids]); while (perm.some((t, i) => t === ids[i]));
+  ids.forEach((id, i) => { room.customTargets[id] = perm[i]; });
+}
+
 const hintsLeft = p => Math.min(HINT_LEVELS, Math.floor((p.qCount || 0) / HINT_EVERY)) - (p.hintsUsed || 0);
 
 function newRoom(isPublic) {
@@ -127,21 +160,21 @@ const canVote = (room, p) => p !== room.players[room.turnIdx] && p.rank >= 0 && 
 const emitAll = (room, ev, data) => { for (const p of room.players) if (p.sid) io.to(p.sid).emit(ev, data); };
 
 function view(room, me) {
-  const n = room.players.length, i = room.players.indexOf(me), tp = room.players[room.turnIdx];
+  const tp = room.players[room.turnIdx];
   const hiding = room.state === 'playing' && !me.rank; // 내 제시어를 아직 모르는 상태
   return {
     code: room.code, me: me.id, hostId: host(room)?.id, state: room.state,
     category: room.category, customMode: room.customMode, turnSec: room.turnSec,
     voteSec: room.voteSec, maxPlayers: room.maxPlayers, wordList: room.wordList, isPublic: room.isPublic,
     spectatorVote: room.spectatorVote, round: room.round, reactions: REACTIONS, hintEvery: HINT_EVERY,
-    categories: ['전체', ...Object.keys(WORDS), CUSTOM_CAT],
+    categories: ['전체', ...Object.keys(WORDS), CUSTOM_CAT], avatarIcons: AVATAR_ICONS,
     players: room.players.map(p => ({
-      id: p.id, name: p.name, online: !!p.sid, kicked: !!p.kicked, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
+      id: p.id, name: p.name, av: p.av, online: !!p.sid, kicked: !!p.kicked, watching: !!p.watching, ready: p.ready, rank: p.rank || 0, submitted: !!room.custom[p.id],
       qCount: p.qCount || 0, score: p.score || 0, lastPoints: p.lastPoints ?? null,
       // 핵심 규칙: 진행 중인 본인 제시어만 가림 (맞힌 뒤엔 공개)
       word: room.state === 'lobby' ? null : (p === me && hiding) ? '???' : p.word,
     })),
-    customTarget: room.customMode && n > 1 ? room.players[(i + 1) % n].name : null,
+    customTarget: room.players.find(p => p.id === room.customTargets?.[me.id])?.name || null,
     myCustom: room.custom[me.id] || '',
     myHint: hiding && me.hintsUsed ? hintText(me.word, me.hintsUsed, me.hintPos) : '',
     myQuestions: room.state === 'lobby' ? [] : (me.qHistory || []),
@@ -162,8 +195,10 @@ function startGame(room) {
   const n = room.players.length;
   let words;
   if (room.customMode) {
-    // 각 플레이어는 목록상 다음 사람의 제시어를 작성
-    words = room.players.map((p, i) => room.custom[room.players[(i - 1 + n) % n].id]);
+    // 무작위로 배정된 사람이 쓴 제시어를 받음
+    const writerOf = id => Object.keys(room.customTargets || {}).find(w => room.customTargets[w] === id);
+    if (room.players.some(p => !writerOf(p.id))) { assignTargets(room); return '인원이 바뀌어 제시어 배정을 다시 했어요. 다시 입력해 주세요.'; }
+    words = room.players.map(p => room.custom[writerOf(p.id)]);
     if (words.some(w => !w)) return '모든 플레이어가 제시어를 입력해야 합니다.';
     if (new Set(words.map(norm)).size !== n) return '중복된 제시어가 있습니다.';
   } else {
@@ -177,7 +212,7 @@ function startGame(room) {
     words.forEach(w => room.usedWords.add(w));
   }
   room.players.forEach((p, i) => Object.assign(p, {
-    word: words[i], rank: 0, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, qHistory: [], hintsUsed: 0, hintPos: hintPos(words[i]), lastPoints: null,
+    word: words[i], rank: 0, watching: false, noAsk: false, penaltyUsed: false, ready: false, qCount: 0, qHistory: [], hintsUsed: 0, hintPos: hintPos(words[i]), lastPoints: null,
   }));
   Object.assign(room, { state: 'playing', log: [], nextRank: 1, q: null, turnIdx: -1, paused: false, roundSize: n });
   addLog(room, `🎮 ${room.round + 1}번째 게임 시작! 내 제시어를 맞혀보세요.`, 'sys');
@@ -281,8 +316,9 @@ function forfeit(room, p, text, kicked = false) {
 function toLobby(room) {
   clearTimeout(room.timer);
   room.players = room.players.filter(p => p.sid); // 오프라인·기권자는 정리
-  room.players.forEach(p => Object.assign(p, { word: null, rank: 0, ready: false }));
-  Object.assign(room, { state: 'lobby', q: null, custom: {}, log: [], turnIdx: -1, paused: false });
+  room.players.forEach(p => Object.assign(p, { word: null, rank: 0, ready: false, watching: false }));
+  Object.assign(room, { state: 'lobby', q: null, log: [], turnIdx: -1, paused: false });
+  assignTargets(room);
   if (!room.players.length) deleteRoom(room);
 }
 
@@ -290,7 +326,7 @@ function removePlayer(room, p) {
   clearTimeout(p.removeTimer);
   room.players = room.players.filter(x => x !== p);
   addLog(room, `🚪 ${p.name}님이 나갔습니다.`, 'sys');
-  room.custom = {}; // 작성 대상이 바뀌므로 초기화
+  if (room.state === 'lobby') assignTargets(room); // 작성 대상이 바뀌므로 다시 배정
   if (room.hostId === p.id) room.hostId = room.players[0]?.id;
   if (!room.players.length) return deleteRoom(room);
   sync(room);
@@ -306,21 +342,22 @@ function attach(socket, room, p) {
   sync(room);
 }
 
-function join(socket, room, { name, token }) {
+function join(socket, room, { name, token, avatar }) {
   if (typeof token !== 'string' || token.length < 16) return '잘못된 요청입니다.';
   let p = room.players.find(x => x.token === token);
   if (!p) {
     name = clean(name, 12);
     if (!name) return '닉네임을 입력하세요.';
-    if (room.state !== 'lobby') return '이미 게임이 진행 중입니다.';
     if (room.players.length >= room.maxPlayers) return `방이 가득 찼습니다 (최대 ${room.maxPlayers}명).`;
     if (room.players.some(x => x.name === name)) return '이미 사용 중인 닉네임입니다.';
     if (hasBad(name)) return '사용할 수 없는 닉네임입니다.';
     if (room.banned.has(token) || room.banned.has('name:' + norm(name))) return '이 방에서 강퇴되어 다시 들어갈 수 없습니다.';
-    p = { id: rid(), token, name, sid: null, ready: false, rank: 0, score: 0 };
+    // 게임 중에 들어오면 관전자(rank -2: 차례·투표·순위에서 빠짐) → 다음 판부터 참가
+    const watching = room.state === 'playing';
+    p = { id: rid(), token, name, av: cleanAvatar(avatar), sid: null, ready: false, rank: watching ? -2 : 0, watching, score: 0 };
     room.players.push(p);
-    addLog(room, `👋 ${name}님이 들어왔습니다.`, 'sys');
-    room.custom = {};
+    addLog(room, watching ? `👀 ${name}님이 관전하러 들어왔습니다. 다음 판부터 참가해요.` : `👋 ${name}님이 들어왔습니다.`, 'sys');
+    if (room.state === 'lobby') assignTargets(room);
     if (!room.hostId) room.hostId = p.id;
   }
   attach(socket, room, p);
@@ -336,8 +373,9 @@ io.on('connection', socket => {
   socket.on('rooms', (cb) => {
     if (typeof cb !== 'function') return;
     cb([...rooms.values()]
-      .filter(r => r.isPublic && r.state === 'lobby' && r.players.length < r.maxPlayers && host(r))
-      .map(r => ({ code: r.code, host: host(r).name, count: r.players.length, max: r.maxPlayers, category: r.customMode ? '서로 지정' : r.category })));
+      .filter(r => r.isPublic && r.players.length < r.maxPlayers && host(r))
+      .map(r => ({ code: r.code, host: host(r).name, hostAv: host(r).av, count: r.players.length, max: r.maxPlayers, status: r.state,
+        category: r.customMode ? '서로 지정' : r.category })));
   });
 
   // 이미 다른 방에 있으면 그 방에서 먼저 나감 (빈 방이 남지 않게)
@@ -402,7 +440,7 @@ io.on('connection', socket => {
     if ('wordList' in d) room.wordList = [...new Set(String(d.wordList).split(/[,\n]/).map(w => clean(w, 20)).filter(Boolean))].slice(0, 200);
     if ('isPublic' in d) room.isPublic = !!d.isPublic;
     if ('spectatorVote' in d) room.spectatorVote = !!d.spectatorVote;
-    if ('customMode' in d) { room.customMode = !!d.customMode; room.custom = {}; }
+    if ('customMode' in d) { room.customMode = !!d.customMode; assignTargets(room); }
     if (TURN_SECS.includes(+d.turnSec)) room.turnSec = +d.turnSec;
     if (VOTE_SECS.includes(+d.voteSec)) room.voteSec = +d.voteSec;
     if ('maxPlayers' in d) {
@@ -490,11 +528,18 @@ io.on('connection', socket => {
       addLog(room, `🎉 ${me.name}님 정답! "${me.word}" — ${me.rank}등`, 'correct');
     } else {
       addLog(room, `❌ ${me.name}님 오답: "${text}"`, 'wrong');
+      if (nearMiss(text, me.word)) addLog(room, `😮 아까워요! ${me.name}님, 한 글자 차이예요.`, 'close');
       if (!me.penaltyUsed) {
         me.penaltyUsed = me.noAsk = true;
         addLog(room, `⚠️ ${me.name}님은 다음 턴에 질문할 수 없습니다.`, 'warn');
       }
     }
+    nextTurn(room);
+  });
+
+  on('pass', (room, me) => {
+    if (room.state !== 'playing' || room.players[room.turnIdx] !== me || room.q) return '지금은 패스할 수 없습니다.';
+    addLog(room, `⏭ ${me.name}님이 패스했습니다.`, 'info');
     nextTurn(room);
   });
 
@@ -542,4 +587,4 @@ process.on('SIGTERM', () => {
 });
 
 server.listen(PORT, () => console.log(`양세찬 게임 서버: http://localhost:${server.address().port}`));
-module.exports = { server, isCorrect, hintText, norm, maskText, flat, hasBad };
+module.exports = { server, isCorrect, hintText, norm, maskText, flat, hasBad, nearMiss };

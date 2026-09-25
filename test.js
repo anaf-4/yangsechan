@@ -4,7 +4,13 @@ process.env.TURN_GRACE_MS = 300;
 process.env.COUNTDOWN_MS = 200;
 const assert = require('assert');
 const { io } = require('socket.io-client');
-const { server, isCorrect, hintText, maskText, flat, hasBad } = require('./server');
+const { server, isCorrect, hintText, maskText, flat, hasBad, nearMiss } = require('./server');
+
+// 아깝다: 한 글자 차이만
+assert.ok(nearMiss('초파', '쵸파'));
+assert.ok(nearMiss('고양', '고양이'));
+assert.ok(!nearMiss('강아지', '고양이'));
+assert.ok(!nearMiss('고양이', '고양이'));
 
 // 가리기: 욕설(숫자·기호 끼워도), 정답 스포
 assert.ok(hasBad('시1발'));
@@ -39,6 +45,7 @@ const nextState = (sock, pred = () => true) => new Promise(r => {
 });
 
 server.on('listening', async () => {
+  setTimeout(() => { console.error('❌ 테스트 시간 초과 (30초)'); process.exit(1); }, 30000);
   const url = `http://localhost:${server.address().port}`;
   const mk = () => io(url, { forceNew: true });
   const [a, b, c] = [mk(), mk(), mk()];
@@ -233,6 +240,54 @@ server.on('listening', async () => {
   const gs = await left;
   assert.ok(gs.log.some(l => l.text.includes('H님이 나갔습니다')), '새 방을 만들면 이전 방에서 나감');
   [h, g, k].forEach(s => s.close());
+
+  // 패스·관전 입장·결과 화면 입장·서로 지정 무작위 배정
+  const [p1, p2, p3, p4] = [mk(), mk(), mk(), mk()];
+  await Promise.all([p1, p2, p3, p4].map(s => wait(s, 'connect')));
+  const { code: wc } = await emitCb(p1, 'create', { name: 'P1', token: tok('1'), avatar: { c: 3, e: '🐱' } });
+  await emitCb(p2, 'join', { code: wc, name: 'P2', token: tok('2'), avatar: { c: 99, e: '<script>' } });
+  const ws0 = await new Promise(r => { p1.once('state', r); p1.emit('settings', { customMode: true }); });
+  assert.deepEqual(ws0.players[0].av, { c: 3, e: '🐱' });
+  assert.deepEqual(ws0.players[1].av, { c: null, e: '' }, '잘못된 아바타 값은 버림');
+  assert.equal(ws0.customTarget, 'P2', '2명이면 서로의 제시어를 씀');
+  p1.emit('customWord', { word: '사과' });
+  await new Promise(r => { p1.once('state', r); p2.emit('customWord', { word: '바나나' }); });
+  await new Promise(r => { p1.once('state', r); p2.emit('ready'); });
+  let wst = nextState(p1, s => s.state === 'playing' && s.turnId === s.players[0].id && !s.q);
+  p1.emit('start');
+  const ws1 = await wst;
+  assert.equal(ws1.players[1].word, '사과', 'P1이 쓴 제시어가 P2에게');
+  // 게임 중 입장 → 관전자
+  const ws2p = new Promise(r => p3.once('state', r));
+  const jw = await emitCb(p3, 'join', { code: wc, name: 'P3', token: tok('3') });
+  assert.equal(jw.code, wc);
+  const ws2 = await ws2p;
+  assert.equal(ws2.players[2].watching, true);
+  assert.equal(ws2.players[2].rank, -2);
+  // 패스 → P2 차례 (관전자 P3는 건너뜀)
+  wst = nextState(p1, s => s.turnId === s.players[1].id);
+  p1.emit('pass');
+  const ws3 = await wst;
+  assert.ok(ws3.log.some(l => l.text.includes('P1님이 패스')));
+  // P2 정답 → 2명 중 1명 남음 → 종료, 관전자는 점수 0·순위 없음
+  const done = nextState(p1, s => s.state === 'result');
+  p2.emit('guess', { text: '사과' });
+  const ws4 = await done;
+  assert.equal(ws4.players[2].rank, -2);
+  assert.equal(ws4.players[2].score, 0);
+  // 결과 화면에서도 입장 가능
+  assert.equal((await emitCb(p4, 'join', { code: wc, name: 'P4', token: tok('4') })).code, wc);
+  // 다음 판: 모두 준비 → 새 게임에 관전자·새 입장자 모두 참가 (서로 지정이라 대기실로)
+  for (const s of [p2, p3, p4]) await new Promise(r => { p1.once('state', r); s.emit('ready'); });
+  const lob = nextState(p1, s => s.state === 'lobby');
+  p1.emit('again');
+  const ws5 = await lob;
+  assert.equal(ws5.players.length, 4);
+  assert.ok(ws5.players.every(p => !p.watching && p.rank === 0));
+  // 4명 무작위 배정: 자기 자신은 절대 안 나옴
+  const targets = await Promise.all([p1, p2, p3, p4].map(s => new Promise(r => { s.once('state', r); s.emit('ready'); })));
+  targets.forEach((t, i) => assert.ok(t.customTarget && t.customTarget !== `P${i + 1}`, '자기 제시어는 안 씀'));
+  [p1, p2, p3, p4].forEach(s => s.close());
 
   console.log('✅ all tests passed');
   [a, c2].forEach(s => s.close());

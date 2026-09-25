@@ -247,6 +247,7 @@
   #log .result::before { background:var(--gold); }
   #log .correct { background:var(--purple); color:var(--gold); font-weight:800; } #log .correct::before { background:var(--gold); }
   #log .wrong { color:#ffb3a3; } #log .wrong::before, #log .warn::before { background:var(--coral); }
+  #log .close { color:var(--gold); font-weight:800; } #log .close::before { background:var(--gold); }
   #log .sys { color:var(--gold); font-weight:800; } #log .sys::before { background:var(--gold); }
 
   /* ===== 결과 ===== */
@@ -361,6 +362,27 @@
   .qsuggest .more { color:var(--muted); border-style:dashed; }
   .scoreboard .rdy { font-size:11px; font-weight:800; padding:2px 8px; border-radius:6px; border:1.5px solid var(--gold); color:var(--gold); }
 
+  /* 아바타 고르기 */
+  .avatar.emo { font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif; line-height:1; }
+  .avpick { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  .avpick .preview .avatar { width:64px; height:64px; font-size:30px; box-shadow:0 5px 0 rgba(0,0,0,.35); }
+  .avpick .opts2 { flex:1; min-width:220px; display:flex; flex-direction:column; gap:8px; }
+  .swatches, .icons { display:flex; flex-wrap:wrap; gap:6px; }
+  .swatches button { width:30px; height:30px; border-radius:50%; border:3px solid transparent; }
+  .swatches button.on { border-color:var(--ivory); }
+  .icons button { width:36px; height:36px; border-radius:10px; border:2px solid var(--line-2); background:var(--bg); font-size:20px; line-height:1; font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif; }
+  .icons button.on { border-color:var(--gold); background:var(--purple); }
+  .icons .txt { font-family:var(--display); color:var(--soft); font-size:15px; }
+  /* 내 전적 */
+  .mystats { display:flex; align-items:center; gap:10px 22px; flex-wrap:wrap; margin:16px 20px 0; padding:14px 20px; }
+  .mystats b { font-family:var(--arcade); color:var(--gold); font-size:18px; font-weight:400; margin-right:4px; }
+  .mystats .ttl { font-weight:800; color:var(--soft); }
+  /* 관전 */
+  .watchers { text-align:center; font-size:14px; color:var(--muted); }
+  .rooms .st { font-size:12px; font-weight:800; padding:2px 8px; border-radius:6px; margin-left:6px; }
+  .rooms .st.playing { background:rgba(111,182,255,.18); color:var(--sky); }
+  .rooms .st.result { background:rgba(255,194,61,.16); color:var(--gold); }
+
   /* 확인 창 */
   #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
   .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
@@ -452,6 +474,7 @@
       <div class="step"><div class="n">2</div><div><b>투표 받기</b><span>모두가 예 · 아니오 · 모호함으로 답해요</span></div></div>
       <div class="step"><div class="n">3</div><div><b>정답 도전</b><span>틀리면 다음 턴 질문 기회가 사라져요</span></div></div>
     </div>
+    <div class="panel mystats hidden" id="myStats"></div>
 
     <div id="entry" class="hidden">
       <div class="topnav">
@@ -468,6 +491,14 @@
           <input id="nameIn" class="field" maxlength="12" placeholder="닉네임 입력" autocomplete="nickname">
         </div>
         <p>최대 12자. 같은 방에서 겹치지 않는 이름을 써 주세요.</p>
+      </div>
+      <div class="panel avpick" style="margin-bottom:22px">
+        <div class="preview" id="avPreview"></div>
+        <div class="opts2">
+          <div class="label">내 캐릭터</div>
+          <div class="swatches" id="avColors" aria-label="색 고르기"></div>
+          <div class="icons" id="avIcons" aria-label="아이콘 고르기"></div>
+        </div>
       </div>
 
       <div class="duo">
@@ -631,10 +662,11 @@
     <div class="game-main">
       <div class="table" id="cards"></div>
       <div class="reacts" id="reacts" aria-label="리액션 보내기"></div>
+      <div class="watchers hidden" id="watchers"></div>
       <div class="panel stage">
         <div class="hintbar hidden" id="hintBar"></div>
         <div id="askBox" class="hidden" style="display:flex;flex-direction:column;gap:12px">
-          <div class="ask-hint" id="askHint">내 차례! 질문을 하거나 정답에 도전하세요.</div>
+          <div style="display:flex;align-items:center;gap:10px"><div class="ask-hint grow" id="askHint">내 차례! 질문을 하거나 정답에 도전하세요.</div><button id="passBtn" class="btn" style="min-height:40px;padding:0 16px;font-size:14px">패스</button></div>
           <div class="qsuggest" id="qSuggest" aria-label="질문 추천"></div>
           <div class="ask-row">
             <label class="sr" for="qIn">질문</label>
@@ -726,7 +758,16 @@ const LABEL = { yes:'예', no:'아니오', maybe:'모호함' };
 const BAR = { yes:'var(--sky)', no:'var(--coral)', maybe:'var(--muted)' };
 const PALETTE = ['#ffc23d', '#6fb6ff', '#ff8a70', '#b9a3ff', '#7fd8b4', '#ffd76e', '#8fc7ff', '#ffab98'];
 const colorOf = name => { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
-const avatar = (name, size) => `<div class="avatar" style="background:${colorOf(name)}${size ? `;width:${size}px;height:${size}px` : ''}">${esc(String(name)[0] || '?')}</div>`;
+// 아바타: 플레이어(이름·고른 색·아이콘) 또는 이름만 받아서 그림
+const avatar = (who, size) => {
+  const p = typeof who === 'object' && who ? who : { name: who ?? '?' };
+  const bg = p.av?.c != null ? PALETTE[p.av.c] : colorOf(p.name);
+  return `<div class="avatar ${p.av?.e ? 'emo' : ''}" style="background:${bg}${size ? `;width:${size}px;height:${size}px` : ''}">${p.av?.e || esc(String(p.name)[0] || '?')}</div>`;
+};
+// 내 캐릭터 (기기에 저장, 입장할 때 서버로 보냄)
+const AV_ICONS = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐯', '🦁', '🐸', '🐧', '🐙', '🦄'];
+let myAv = { c: null, e: '' };
+try { myAv = { ...myAv, ...JSON.parse(localStorage.getItem('ysc_av') || '{}') }; } catch {}
 const ICON = {
   crown: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></svg>',
   x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -848,21 +889,32 @@ const entry = on => {
 $('introBtn').onclick = () => entry(true);
 $('backBtn').onclick = () => entry(false);
 const nm = () => { const n = $('nameIn').value.trim(); localStorage.setItem('ysc_name', n); return n; };
+function paintAv() {
+  $('avPreview').innerHTML = avatar({ name: $('nameIn').value.trim() || '나', av: myAv });
+  $('avColors').innerHTML = PALETTE.map((c, i) => `<button data-c="${i}" class="${myAv.c === i ? 'on' : ''}" style="background:${c}" aria-label="색 ${i + 1}" aria-pressed="${myAv.c === i}"></button>`).join('');
+  $('avIcons').innerHTML = `<button data-e="" class="txt ${myAv.e ? '' : 'on'}" aria-label="이름 첫 글자">가</button>`
+    + AV_ICONS.map(e => `<button data-e="${e}" class="${myAv.e === e ? 'on' : ''}" aria-label="아이콘 ${e}">${e}</button>`).join('');
+}
+const saveAv = () => { try { localStorage.setItem('ysc_av', JSON.stringify(myAv)); } catch {} paintAv(); };
+$('avColors').onclick = e => { const c = e.target.closest('[data-c]')?.dataset.c; if (c != null) { myAv.c = +c; saveAv(); } };
+$('avIcons').onclick = e => { const b = e.target.closest('[data-e]'); if (b) { myAv.e = b.dataset.e; saveAv(); } };
+$('nameIn').addEventListener('input', paintAv);
+paintAv();
 function loadRooms() {
   if ($('home').classList.contains('hidden')) return clearInterval(listTimer);
   socket.emit('rooms', list => {
     $('roomList').innerHTML = list.length ? list.map(r => `
-      <li>${avatar(r.host)}
-        <div class="grow"><div class="rn">${esc(r.host)}님의 방</div><div class="rc">${esc(r.category)}</div></div>
+      <li>${avatar({ name: r.host, av: r.hostAv })}
+        <div class="grow"><div class="rn">${esc(r.host)}님의 방${r.status === 'playing' ? '<span class="st playing">게임 중</span>' : r.status === 'result' ? '<span class="st result">곧 다음 판</span>' : ''}</div><div class="rc">${esc(r.category)}</div></div>
         <span class="cnt">${r.count}/${r.max}</span>
-        <button class="btn btn-gold" data-code="${esc(r.code)}">입장</button></li>`).join('')
+        <button class="btn btn-gold" data-code="${esc(r.code)}">${r.status === 'playing' ? '관전' : '입장'}</button></li>`).join('')
       : '<li class="empty">열려 있는 공개방이 없어요. 직접 만들어 보세요!</li>';
   });
 }
-const joinCode = code => socket.emit('join', { name: nm(), code, token }, entered);
+const joinCode = code => socket.emit('join', { name: nm(), code, token, avatar: myAv }, entered);
 $('refreshBtn').onclick = loadRooms;
 $('roomList').onclick = e => { const c = e.target.closest('[data-code]')?.dataset.code; if (c) joinCode(c); };
-$('createBtn').onclick = () => socket.emit('create', { name: nm(), token, isPublic: document.querySelector('[name=vis]:checked').value === 'public' }, entered);
+$('createBtn').onclick = () => socket.emit('create', { name: nm(), token, avatar: myAv, isPublic: document.querySelector('[name=vis]:checked').value === 'public' }, entered);
 $('joinBtn').onclick = () => joinCode($('codeIn').value.trim());
 $('codeIn').onkeydown = e => { if (e.key === 'Enter') $('joinBtn').click(); };
 if ($('codeIn').value) entry(true); // 초대 링크로 들어오면 바로 입장 화면
@@ -916,7 +968,7 @@ function renderLobby() {
     return `<div class="seat-c ${p.id === S.me ? 'me' : ''} ${p.online ? '' : 'off'}">
       ${host ? `<span class="crown">${ICON.crown}방장</span>` : ''}
       ${isHost && !host ? `<div class="seat-tools">${p.online ? `<button class="mkhost" data-mkhost="${p.id}" aria-label="${esc(p.name)}에게 방장 넘기기" title="방장 넘기기">${ICON.crown}</button>` : ''}<button class="kick" data-kick="${p.id}" aria-label="${esc(p.name)} 강퇴" title="강퇴">${ICON.x}</button></div>` : ''}
-      ${avatar(p.name)}
+      ${avatar(p)}
       <div class="pname">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</div>
       <div class="stamp ${host ? 'host' : p.ready ? 'on' : ''}">${host ? 'HOST' : p.ready ? 'READY' : 'WAIT'}</div>
       ${S.round ? `<div class="score">${p.score}점</div>` : ''}
@@ -980,6 +1032,7 @@ $('qSuggest').onclick = e => {
   if (q) { $('qIn').value = q; $('qIn').focus(); }
 };
 const guess = () => { act('guess', { text: $('gIn').value }); $('gIn').value = ''; };
+$('passBtn').onclick = () => ask2('이번 차례를<br>넘기시겠습니까?', '질문도 정답 도전도 하지 않고 다음 사람에게 넘어가요.', () => act('pass'));
 $('askBtn').onclick = ask; $('qIn').onkeydown = e => { if (e.key === 'Enter') ask(); };
 $('guessBtn').onclick = guess; $('gIn').onkeydown = e => { if (e.key === 'Enter') guess(); };
 $('qBox').onclick = e => { const a = e.target.closest('[data-vote]')?.dataset.vote; if (a) { sfx('vote', 15); act('vote', { answer: a }); } };
@@ -1006,9 +1059,12 @@ function renderGame() {
   $('gCode').textContent = S.code;
   const counting = S.startsIn > 0;
   $('turnInfo').innerHTML = counting ? '<span>곧 시작합니다</span>' : !tp ? '<span>재접속 대기 중</span>'
-    : `${avatar(tp.name)}${myTurn ? '<b style="color:var(--gold);font-weight:400">내 차례!</b>' : `${esc(tp.name)}<span>님의 차례</span>`}`;
+    : `${avatar(tp)}${myTurn ? '<b style="color:var(--gold);font-weight:400">내 차례!</b>' : `${esc(tp.name)}<span>님의 차례</span>`}`;
 
-  $('cards').innerHTML = S.players.map(p => {
+  const watchers = S.players.filter(p => p.watching);
+  $('watchers').classList.toggle('hidden', !watchers.length);
+  $('watchers').textContent = watchers.length ? `관전 중 ${watchers.map(p => p.name).join(', ')} — 다음 판부터 함께해요` : '';
+  $('cards').innerHTML = S.players.filter(p => !p.watching).map(p => {
     const hidden = p.id === S.me && p.word === '???';
     const ribbon = p.rank > 0 ? `<div class="ribbon">${p.rank}등</div>` : p.rank < 0 ? `<div class="ribbon quit">${p.kicked ? '퇴장' : '기권'}</div>` : '';
     const kick = isHost && p.id !== S.me && p.rank >= 0 ? `<button class="seat-kick" data-kick="${p.id}" aria-label="${esc(p.name)} 강퇴">${ICON.x}</button>` : '';
@@ -1046,7 +1102,7 @@ function renderGame() {
     const total = Math.max(1, c.yes + c.no + c.maybe);
     const canVote = me.rank >= 0 && !myTurn && (!me.rank || S.spectatorVote), mv = S.q.votes[S.me];
     $('qBox').innerHTML = `
-      <div class="bubble-row">${avatar(tp?.name ?? '?')}<div class="bubble">${esc(S.q.text)}</div></div>
+      <div class="bubble-row">${avatar(tp || '?')}<div class="bubble">${esc(S.q.text)}</div></div>
       ${canVote ? `<div class="votes">${Object.keys(LABEL).map(a => `<button data-vote="${a}" class="vote ${a} ${mv === a ? 'sel' : ''}" aria-pressed="${mv === a}">${LABEL[a]}</button>`).join('')}</div>` : ''}
       <div class="tally">${Object.keys(LABEL).map(a => `
         <div><div class="tl"><span>${LABEL[a]}</span><b style="color:${BAR[a]}">${c[a]}</b></div>
@@ -1059,7 +1115,7 @@ function renderGame() {
 
   const wait = $('waitMsg');
   wait.classList.toggle('spec', !!me.rank);
-  wait.textContent = me.rank ? `관전 중 — 정답을 맞혔어요!${S.spectatorVote ? ' 답변은 계속 할 수 있어요.' : ''} 마지막 1명이 남을 때까지 게임이 계속됩니다.`
+  wait.textContent = me.watching ? '관전 중이에요. 모든 제시어가 보여요! 다음 판부터 함께해요.' : me.rank ? `관전 중 — 정답을 맞혔어요!${S.spectatorVote ? ' 답변은 계속 할 수 있어요.' : ''} 마지막 1명이 남을 때까지 게임이 계속됩니다.`
     : counting ? '' : !tp ? '남은 플레이어가 다시 접속하면 이어서 진행합니다.' : myTurn ? (S.q ? '다른 플레이어들의 답변을 기다리는 중…' : '')
     : S.q ? '' : `${tp.name}님이 고민 중…`;
   $('log').innerHTML = S.log.map(l => `<div class="${l.kind}"><span>${esc(l.text.replace(/^[^\p{L}\p{N}"]+/u, ''))}</span></div>`).join('');
@@ -1118,7 +1174,7 @@ function renderResult() {
   show('result');
   const isHost = S.hostId === S.me;
   const ranked = S.players.filter(p => p.rank > 0).sort((a, b) => a.rank - b.rank);
-  const quit = S.players.filter(p => p.rank < 0);
+  const quit = S.players.filter(p => p.rank < 0 && !p.watching);
   const pod = p => `<div class="pod p${p.rank}">
       <div class="card face"><span class="who">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span><span class="word">${esc(p.word)}</span></div>
       <div class="pts">+${p.lastPoints}점</div>
@@ -1129,7 +1185,7 @@ function renderResult() {
   $('rList').classList.toggle('hidden', !$('rList').children.length);
   // 누적 점수판 (방에서 한 판들의 합계)
   const board = [...S.players].sort((a, b) => b.score - a.score);
-  $('scoreboard').innerHTML = `<div class="phead"><h2 class="h2" style="font-size:22px">누적 점수</h2><span class="sub">${S.round}판 · 1등 ${S.players.length - 1}점, 2등 ${Math.max(0, S.players.length - 2)}점 …</span></div>
+  $('scoreboard').innerHTML = `<div class="phead"><h2 class="h2" style="font-size:22px">누적 점수</h2><span class="sub">${S.round}판 · 1등 ${S.players.filter(p => !p.watching).length - 1}점, 2등 ${Math.max(0, S.players.filter(p => !p.watching).length - 2)}점 …</span></div>
     <ol>${board.map((p, i) => `<li class="${i === 0 && p.score ? 'top' : ''}"><span class="no">${i + 1}</span><span class="nm">${esc(p.name)}${p.id === S.me ? ' (나)' : ''}</span>
       ${p.ready ? '<span class="rdy">준비</span>' : ''}<span class="pts">+${p.lastPoints ?? 0}</span><span class="total">${p.score}점</span></li>`).join('')}</ol>`;
   // 새 게임: 접속 중인 모두가 "다음 게임 준비"를 눌러야 방장이 시작 가능
@@ -1186,6 +1242,29 @@ function effectsFor(prev, s) {
   }
 }
 
+// ---- 내 전적 (기기에 저장) ----
+function loadStats() { try { return JSON.parse(localStorage.getItem('ysc_stats') || '{}'); } catch { return {}; } }
+function paintStats() {
+  const st = loadStats();
+  $('myStats').classList.toggle('hidden', !st.games);
+  if (!st.games) return;
+  $('myStats').innerHTML = `<span class="ttl">내 전적</span><span><b>${st.games}</b>판</span><span><b>${st.wins || 0}</b>번 1등 (${Math.round((st.wins || 0) / st.games * 100)}%)</span>`
+    + `<span>평균 질문 <b>${(st.questions / st.games).toFixed(1)}</b>개</span>${st.best ? `<span>최고 <b>${st.best}</b>등</span>` : ''}`;
+}
+function recordStats(prev, s) {
+  if (prev?.code !== s.code || prev.state !== 'playing' || s.state !== 'result') return;
+  const me = s.players.find(p => p.id === s.me);
+  if (!me || me.rank <= 0) return; // 관전·기권은 기록 안 함
+  const st = loadStats();
+  st.games = (st.games || 0) + 1;
+  st.wins = (st.wins || 0) + (me.rank === 1 ? 1 : 0);
+  st.questions = (st.questions || 0) + me.qCount;
+  st.best = Math.min(st.best || 99, me.rank);
+  try { localStorage.setItem('ysc_stats', JSON.stringify(st)); } catch {}
+  paintStats();
+}
+paintStats();
+
 // ---- 소켓 ----
 const BANNER_DEFAULT = '연결이 끊겼습니다 — 재접속 중…';
 let restarting = false;
@@ -1197,6 +1276,7 @@ socket.on('state', s => {
   else if (s.startsIn > 0) cdEnd = Date.now() + s.startsIn;
   ({ lobby: renderLobby, playing: renderGame, result: renderResult })[s.state]();
   effectsFor(prev, s);
+  recordStats(prev, s);
 });
 // 서버 업데이트(배포)로 재시작될 때
 socket.on('serverRestart', () => {
