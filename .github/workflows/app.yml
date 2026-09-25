@@ -39,6 +39,8 @@ jobs:
           sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"$(node -p "require('./package.json').version")\"/" android/app/build.gradle
           grep -E "versionCode|versionName" android/app/build.gradle
       - run: npx cap sync android
+      # apksigner는 Android SDK build-tools 안에 있어 PATH에 추가
+      - run: ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1 >> "$GITHUB_PATH"
       - name: Build signed APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
