@@ -300,6 +300,10 @@
   .scoreboard .pts { font-size:13px; opacity:.8; }
   .scoreboard .total { font-family:var(--arcade); font-size:18px; min-width:64px; text-align:right; }
 
+  /* 효과음 켜기/끄기 */
+  #sfxBtn { position:fixed; left:calc(14px + env(safe-area-inset-left, 0px)); bottom:calc(14px + env(safe-area-inset-bottom, 0px)); z-index:18; width:46px; height:46px; border-radius:50%; border:2px solid var(--line-2); background:var(--panel); color:var(--soft); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px rgba(0,0,0,.4); }
+  #sfxBtn.off { color:var(--faint); }
+
   /* 확인 창 */
   #modal { position:fixed; inset:0; z-index:25; background:rgba(10,12,23,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
   .modal-box { width:min(420px, 100%); text-align:center; padding:30px 26px 26px; box-shadow:0 24px 60px rgba(0,0,0,.6); animation:rise .18s ease-out; }
@@ -627,6 +631,7 @@
   </div>
 </div>
 
+<button id="sfxBtn" aria-label="효과음 끄기" title="효과음 켜기/끄기"></button>
 <div id="toast" role="status"></div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -668,6 +673,60 @@ function entered(res) {
   history.replaceState(null, '', '/?room=' + res.code);
 }
 const act = (ev, data) => socket.emit(ev, data);
+
+// ---- 효과음·진동 ----
+// 소리별 음량(파일은 모두 최대치를 맞춰 둠 → 여기서 상대 크기 조절)
+const SFX_VOL = { countdown: .8, start: 1, 'my-turn': .9, question: .6, vote: .45, correct: 1, wrong: .85, tick: .45, timeup: .85, hint: .8, reaction: .45, chat: .35, join: .6, result: 1 };
+let sfxOn = true;
+try { sfxOn = localStorage.getItem('ysc_sfx') !== 'off'; } catch {}
+const sfxBase = {};
+function sfx(name, buzz) {
+  if (!sfxOn) return;
+  try {
+    const base = sfxBase[name] ||= Object.assign(new Audio(`/sfx/${name}.mp3`), { preload: 'auto' });
+    const a = base.cloneNode(); // 같은 소리가 겹쳐도 끊기지 않게 복제해서 재생
+    a.volume = SFX_VOL[name] ?? 1;
+    a.play().catch(() => {});
+  } catch {}
+  if (buzz && navigator.vibrate && navigator.userActivation?.hasBeenActive) navigator.vibrate(buzz);
+}
+const SPK_ON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+const SPK_OFF = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l6 6M22 9l-6 6"/></svg>';
+function paintSfxBtn() {
+  $('sfxBtn').innerHTML = sfxOn ? SPK_ON : SPK_OFF;
+  $('sfxBtn').classList.toggle('off', !sfxOn);
+  $('sfxBtn').setAttribute('aria-label', sfxOn ? '효과음 끄기' : '효과음 켜기');
+}
+$('sfxBtn').onclick = () => {
+  sfxOn = !sfxOn;
+  try { localStorage.setItem('ysc_sfx', sfxOn ? 'on' : 'off'); } catch {}
+  paintSfxBtn(); toast(sfxOn ? '효과음 켜짐' : '효과음 꺼짐');
+  if (sfxOn) sfx('vote');
+};
+paintSfxBtn();
+// 첫 터치/클릭 때 소리 파일을 미리 받아 둠 (모바일 자동재생 제한 대비)
+addEventListener('pointerdown', () => { for (const n of Object.keys(SFX_VOL)) sfxBase[n] ||= Object.assign(new Audio(`/sfx/${n}.mp3`), { preload: 'auto' }); }, { once: true });
+
+// 상태가 바뀔 때 새로 일어난 일에만 소리
+let lastLogId = null;
+function soundsFor(prev, s) {
+  if (!prev || prev.code !== s.code) { lastLogId = s.log.at(-1)?.id ?? 0; return; } // 처음 들어온 순간엔 소리 없음
+  if (s.state === 'lobby' && prev.state === 'lobby' && s.players.length > prev.players.length) sfx('join');
+  if (s.state === 'result' && prev.state !== 'result') sfx('result', [80, 60, 80, 60, 160]);
+  if (s.state !== 'playing') { lastLogId = s.log.at(-1)?.id ?? 0; return; }
+  // 첫 차례는 START! 소리와 겹치지 않게 조금 뒤에
+  if (s.turnId === s.me && prev.turnId !== s.me) setTimeout(() => sfx('my-turn', [70, 50, 70]), Math.max(0, cdEnd + 900 - Date.now()));
+  if (s.q && !prev.q && s.turnId !== s.me) sfx('question');
+  if (s.myHint && s.myHint !== prev.myHint) sfx('hint');
+  for (const l of s.log) {
+    if (lastLogId != null && l.id <= lastLogId) continue;
+    if (l.kind === 'correct') sfx('correct', [60, 40, 140]);
+    else if (l.kind === 'wrong') sfx('wrong', [220]);
+    else if (l.kind === 'warn' && l.text.includes('시간 초과')) sfx('timeup');
+    else if (l.kind === 'chat' && !l.text.startsWith(`${s.players.find(p => p.id === s.me)?.name}:`)) sfx('chat');
+  }
+  lastLogId = s.log.at(-1)?.id ?? lastLogId;
+}
 
 // 사이트 안의 예/아니요 확인 창 (브라우저 confirm 대신)
 let modalYes = null;
@@ -808,7 +867,7 @@ const ask = () => { act('ask', { text: $('qIn').value }); $('qIn').value = ''; }
 const guess = () => { act('guess', { text: $('gIn').value }); $('gIn').value = ''; };
 $('askBtn').onclick = ask; $('qIn').onkeydown = e => { if (e.key === 'Enter') ask(); };
 $('guessBtn').onclick = guess; $('gIn').onkeydown = e => { if (e.key === 'Enter') guess(); };
-$('qBox').onclick = e => { const a = e.target.closest('[data-vote]')?.dataset.vote; if (a) act('vote', { answer: a }); };
+$('qBox').onclick = e => { const a = e.target.closest('[data-vote]')?.dataset.vote; if (a) { sfx('vote', 15); act('vote', { answer: a }); } };
 $('hintBar').onclick = e => { if (e.target.closest('#hintBtn')) act('hint'); };
 $('reacts').onclick = e => { const x = e.target.closest('[data-e]')?.dataset.e; if (x) socket.emit('react', { e: x }); };
 const chat = () => { const t = $('chatIn').value.trim(); if (t) act('chat', { text: t }); $('chatIn').value = ''; };
@@ -821,6 +880,7 @@ socket.on('reaction', ({ id, e }) => {
   el.className = 'float-react'; el.textContent = e;
   el.style.left = `${35 + Math.random() * 30}%`;
   seat.appendChild(el);
+  sfx('reaction');
   setTimeout(() => el.remove(), 1700);
 });
 
@@ -900,6 +960,7 @@ function tickCountdown() {
   el.textContent = txt;
   el.classList.toggle('go', left <= 0);
   el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  sfx(left > 0 ? 'countdown' : 'start', left > 0 ? 30 : [60, 40, 120]);
 }
 setInterval(tickCountdown, 100);
 
@@ -912,7 +973,10 @@ setInterval(() => {
   $('arc').setAttribute('stroke-dashoffset', 201 * (1 - Math.min(1, left / total)));
   $('arc').setAttribute('stroke', sec <= 10 ? '#ff8a70' : '#ffc23d');
   $('ring').classList.toggle('red', sec <= 10);
+  // 마지막 10초 째깍 (내 차례이거나 투표 중일 때만, 1초에 한 번)
+  if (S.turnId && sec <= 10 && sec > 0 && sec !== lastTick && (S.turnId === S.me || S.q)) { lastTick = sec; sfx('tick'); }
 }, 250);
+let lastTick = 0;
 
 // ---- 결과 ----
 $('againBtn').onclick = () => act('again');
@@ -942,6 +1006,7 @@ function renderResult() {
 
 // ---- 소켓 ----
 socket.on('state', s => {
+  soundsFor(S, s);
   S = s; endAt = Date.now() + s.remaining;
   if (s.state !== 'playing') cdEnd = 0;
   else if (s.startsIn > 0) cdEnd = Date.now() + s.startsIn;

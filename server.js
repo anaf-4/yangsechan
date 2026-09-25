@@ -22,11 +22,12 @@ const CHAT_GAP_MS = 800;         // 채팅·리액션 도배 방지
 const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((req, res) => {
   if (req.url === '/healthz') return res.end('ok');
-  // 아이콘·미리보기 이미지 (public/*.png, 이름 규칙으로 경로 조작 차단)
-  if (/^\/[\w-]+\.png$/.test(req.url)) {
+  // 아이콘·미리보기 이미지(public/*.png)와 효과음(public/sfx/*.mp3) — 이름 규칙으로 경로 조작 차단
+  const asset = req.url.match(/^\/(?:[\w-]+\.png|sfx\/[\w-]+\.mp3)$/);
+  if (asset) {
     return fs.readFile(path.join(__dirname, 'public', req.url.slice(1)), (err, buf) => {
       if (err) { res.writeHead(404); return res.end(); }
-      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+      res.writeHead(200, { 'Content-Type': req.url.endsWith('.mp3') ? 'audio/mpeg' : 'image/png', 'Cache-Control': 'public, max-age=86400' });
       res.end(buf);
     });
   }
@@ -85,7 +86,8 @@ function deleteRoom(room) {
 const active = room => room.players.filter(p => !p.rank);
 const host = room => room.players.find(p => p.id === room.hostId && p.sid) || room.players.find(p => p.sid);
 const isHost = (room, me) => host(room) === me;
-const addLog = (room, text, kind = 'info') => { room.log.push({ text, kind }); if (room.log.length > 200) room.log.shift(); };
+// 기록마다 번호를 붙여 클라이언트가 "새로 생긴 일"만 골라 효과음을 낼 수 있게 함
+const addLog = (room, text, kind = 'info') => { room.log.push({ id: room.logSeq = (room.logSeq || 0) + 1, text, kind }); if (room.log.length > 200) room.log.shift(); };
 // 답변할 수 있는 사람: 차례인 사람 제외, 아직 못 맞힌 사람 (+ 설정 시 맞힌 관전자)
 const canVote = (room, p) => p !== room.players[room.turnIdx] && p.rank >= 0 && (!p.rank || room.spectatorVote);
 const emitAll = (room, ev, data) => { for (const p of room.players) if (p.sid) io.to(p.sid).emit(ev, data); };
