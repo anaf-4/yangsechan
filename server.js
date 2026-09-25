@@ -315,8 +315,8 @@ io.on('connection', socket => {
   socket.on('react', (d) => {
     const c = ctx();
     if (!c || c.room.state !== 'playing' || !REACTIONS.includes(d?.e)) return;
-    if (Date.now() - (c.me.lastSaid || 0) < CHAT_GAP_MS / 2) return;
-    c.me.lastSaid = Date.now();
+    if (Date.now() - (c.me.lastReact || 0) < CHAT_GAP_MS / 2) return;
+    c.me.lastReact = Date.now();
     emitAll(c.room, 'reaction', { id: c.me.id, e: d.e });
   });
 

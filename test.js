@@ -161,6 +161,30 @@ server.on('listening', async () => {
   assert.equal(s6.players[2].rank, -1);
   assert.equal(s6.players[2].kicked, true);
 
+  // 힌트: 새 방에서 X가 질문 5번 → 힌트 1개 → 사용하면 글자 수 공개
+  const [x, y] = [mk(), mk()];
+  await Promise.all([x, y].map(s => wait(s, 'connect')));
+  const { code: hc } = await emitCb(x, 'create', { name: 'X', token: tok('x') });
+  await emitCb(y, 'join', { code: hc, name: 'Y', token: tok('y') });
+  await new Promise(r => { x.once('state', r); y.emit('ready'); });
+  const xTurn = s => s.state === 'playing' && s.turnId === s.players[0].id && !s.q;
+  const yTurn = s => s.state === 'playing' && s.turnId === s.players[1].id && !s.q;
+  let hs = await (async () => { const p = nextState(x, xTurn); x.emit('start'); return p; })();
+  for (let i = 1; i <= 5; i++) {
+    x.emit('ask', { text: `x${i}` }); await nextState(y, s => !!s.q);
+    let p = nextState(y, yTurn); y.emit('vote', { answer: 'no' }); await p;
+    y.emit('ask', { text: `y${i}` }); await nextState(x, s => !!s.q);
+    p = nextState(x, xTurn); x.emit('vote', { answer: 'no' }); hs = await p;
+  }
+  assert.equal(hs.hintsLeft, 1, '질문 5번 → 힌트 1개');
+  const xWord = (await new Promise(r => { y.once('state', r); y.emit('ready'); })).players[0].word;
+  const used = nextState(x, s => !!s.myHint);
+  x.emit('hint');
+  const hs2 = await used;
+  assert.equal(hs2.myHint, hintText(xWord, 1));
+  assert.equal(hs2.hintsLeft, 0);
+  [x, y].forEach(s => s.close());
+
   console.log('✅ all tests passed');
   [a, c2].forEach(s => s.close());
   process.exit(0);
